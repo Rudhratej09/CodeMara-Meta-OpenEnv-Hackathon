@@ -1,7 +1,6 @@
 spec_version: 1
-name: deployment
+name: eco_llm_inference_routing
 type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
-
