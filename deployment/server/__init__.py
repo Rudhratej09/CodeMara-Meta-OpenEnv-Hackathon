@@ -6,6 +6,6 @@
 
 """Deployment environment server components."""
 
-from .deployment_environment import DeploymentEnvironment
+from .deployment_environment import EcoLLMEnvironment
 
-__all__ = ["DeploymentEnvironment"]
+__all__ = ["EcoLLMEnvironment"]

@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Deployment Environment Client."""
+"""Eco-LLM Routing Environment Client."""
 
 from typing import Dict
 
@@ -12,71 +12,40 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import DeploymentAction, DeploymentObservation
+from .models import EcoLLMAction, EcoLLMObservation
 
 
-class DeploymentEnv(
-    EnvClient[DeploymentAction, DeploymentObservation, State]
-):
+class EcoLLMEnv(EnvClient[EcoLLMAction, EcoLLMObservation, State]):
     """
-    Client for the Deployment Environment.
-
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
+    Client for the Eco-LLM Inference Routing Environment.
 
     Example:
-        >>> # Connect to a running server
-        >>> with DeploymentEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
-        ...
-        ...     result = client.step(DeploymentAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
-
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = DeploymentEnv.from_docker_image("deployment-env:latest")
-        >>> try:
-        ...     result = client.reset()
-        ...     result = client.step(DeploymentAction(message="Test"))
-        ... finally:
-        ...     client.close()
+        >>> with EcoLLMEnv(base_url="http://localhost:8000") as env:
+        ...     obs = env.reset()
+        ...     print(obs.observation.query)
+        ...     result = env.step(EcoLLMAction(strategy="NONE", model_choice="SMALL"))
+        ...     print(result.reward)
     """
 
-    def _step_payload(self, action: DeploymentAction) -> Dict:
-        """
-        Convert DeploymentAction to JSON payload for step message.
-
-        Args:
-            action: DeploymentAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
-        """
+    def _step_payload(self, action: EcoLLMAction) -> Dict:
         return {
-            "message": action.message,
+            "strategy": action.strategy,
+            "model_choice": action.model_choice,
         }
 
-    def _parse_result(self, payload: Dict) -> StepResult[DeploymentObservation]:
-        """
-        Parse server response into StepResult[DeploymentObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with DeploymentObservation
-        """
+    def _parse_result(self, payload: Dict) -> StepResult[EcoLLMObservation]:
         obs_data = payload.get("observation", {})
-        observation = DeploymentObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
+        observation = EcoLLMObservation(
+            query=obs_data.get("query", ""),
+            cache_contents=obs_data.get("cache_contents", []),
+            carbon_intensity=obs_data.get("carbon_intensity", 0.5),
+            step=obs_data.get("step", 0),
+            total_steps=obs_data.get("total_steps", 1),
+            task=obs_data.get("task", "easy"),
             done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
+            reward=payload.get("reward", 0.0),
+            info=obs_data.get("info", {}),
         )
-
         return StepResult(
             observation=observation,
             reward=payload.get("reward"),
@@ -84,15 +53,6 @@ class DeploymentEnv(
         )
 
     def _parse_state(self, payload: Dict) -> State:
-        """
-        Parse server response into State object.
-
-        Args:
-            payload: JSON response from state request
-
-        Returns:
-            State object with episode_id and step_count
-        """
         return State(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),

@@ -4,13 +4,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Deployment Environment."""
+"""Eco-LLM Inference Routing Environment."""
 
-from .client import DeploymentEnv
-from .models import DeploymentAction, DeploymentObservation
+from .client import EcoLLMEnv
+from .models import EcoLLMAction, EcoLLMObservation
 
 __all__ = [
-    "DeploymentAction",
-    "DeploymentObservation",
-    "DeploymentEnv",
+    "EcoLLMAction",
+    "EcoLLMObservation",
+    "EcoLLMEnv",
 ]
