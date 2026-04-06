@@ -18,6 +18,8 @@ from server.tasks import (
     LATENCY_MU,
     MODEL_ORDER,
     MODEL_RANK,
+    MAX_STEPS_PER_EPISODE,
+    MAX_CARBON_PENALTY,
     QuerySpec,
     TaskSpec,
     get_task,
@@ -78,8 +80,13 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
         del timeout_s, kwargs
 
         if self._episode_complete:
+            raise RuntimeError(
+                f"Episode {self._state.episode_id!r} is already complete. "
+                "Call reset() to start a new episode."
+            )
+        if self._state.step_count >= MAX_STEPS_PER_EPISODE:   
             return self._build_observation(
-                reward=self._empty_reward(["step_after_done"]),
+                reward=self._empty_reward(["step_limit_exceeded"]),
                 done=True,
             )
 
@@ -148,7 +155,7 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
                 trace.append("task_large_penalty")
 
         score = 1.0 if correct else 0.0
-        carbon_penalty = current_carbon * energy_cost
+        carbon_penalty = min(current_carbon * energy_cost, MAX_CARBON_PENALTY)
         latency_penalty = LATENCY_MU * latency_cost
         total_reward = score - carbon_penalty - latency_penalty + bonuses
 
@@ -187,9 +194,10 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
 
     @property
     def current_query(self) -> QuerySpec:
-        if self._state.query_index >= len(self.current_task.queries):
-            return self.current_task.queries[-1]
-        return self.current_task.queries[self._state.query_index]
+        idx = self._state.query_index
+        queries = self.current_task.queries
+        # Clamp to last query only for building the terminal observation
+        return queries[min(idx, len(queries) - 1)]
 
     @property
     def current_carbon_intensity(self) -> float:
@@ -210,14 +218,13 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
         )
 
     def _build_observation(self, reward: RLReward, done: bool) -> RLObservation:
-        query = self.current_query
+        query = self.current_task.queries[-1] if done else self.current_query
         return RLObservation(
             query=query.text,
             cache_contents=self.cache_contents,
             carbon_intensity=self.current_carbon_intensity,
             done=done,
             reward=reward.total_reward,
-            correct_answer=query.correct_answer,
             reward_details=reward,
             metadata={
                 "task_id": self.current_task.task_id,

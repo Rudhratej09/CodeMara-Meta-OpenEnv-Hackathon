@@ -58,10 +58,6 @@ class RLObservation(Observation):
         description="Queries answered correctly and available in cache",
     )
     carbon_intensity: float = Field(..., ge=0.0, le=1.0, description="Current carbon intensity")
-    correct_answer: str | None = Field(
-        default=None,
-        description="Ground-truth answer, exposed for evaluation",
-    )
     reward_details: RLReward = Field(..., description="Structured reward payload")
 
 

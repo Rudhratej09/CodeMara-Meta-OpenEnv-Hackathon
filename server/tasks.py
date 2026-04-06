@@ -22,9 +22,11 @@ LATENCY_COSTS = {
 MODEL_ORDER = [ModelChoice.SMALL, ModelChoice.MEDIUM, ModelChoice.LARGE]
 MODEL_RANK = {model: index for index, model in enumerate(MODEL_ORDER)}
 CARBON_SCHEDULE = [0.8, 0.6, 0.4, 0.3, 0.5]
-LATENCY_MU = 0.01
+LATENCY_MU = 0.1        
+MAX_CARBON_PENALTY = 0.8
 KB_ENERGY_COST = 0.05
 KB_LATENCY_COST = 1.5
+MAX_STEPS_PER_EPISODE = 50
 
 
 @dataclass(frozen=True)

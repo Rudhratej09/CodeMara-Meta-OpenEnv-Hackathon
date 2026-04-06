@@ -18,7 +18,7 @@ app = create_app(
     RLAction,
     RLObservation,
     env_name="eco_llm_inference_routing",
-    max_concurrent_envs=1,
+    max_concurrent_envs=4,
 )
 
 
