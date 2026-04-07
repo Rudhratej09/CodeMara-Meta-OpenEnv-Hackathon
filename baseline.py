@@ -1,349 +1,373 @@
 """
-inference.py — Eco-LLM Inference Routing Environment
-=====================================================
-Spec-compliant inference script for the OpenEnv hackathon.
+Eco-LLM Baseline Agents
+=======================
 
-Environment variables (required):
-    HF_TOKEN / API_KEY   Your Hugging Face or API key
-    API_BASE_URL         LLM endpoint  (default: https://router.huggingface.co/v1)
-    MODEL_NAME           Model ID       (default: Qwen/Qwen2.5-72B-Instruct)
-    ECO_LLM_TASK         Task to run    (default: task_1  |  task_1 / task_2 / task_3)
-    LOCAL_IMAGE_NAME     Docker image name (if using from_docker_image)
+This module provides three baseline agents for evaluating the Eco-LLM
+Inference Routing environment:
 
-Stdout format (mandatory):
-    [START] task=<task> env=eco_llm_inference_routing model=<model>
-    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
+1. RandomRoutingAgent
+   - Uniformly random strategy + model selection
+   - Lower-bound baseline
+   - Demonstrates environment non-triviality
+
+2. HeuristicRoutingAgent
+   - Rule-based routing (cache -> KB -> wait -> cascade)
+   - Mid-range baseline
+   - No LLM calls required
+
+3. LLMRoutingAgent
+   - Intelligent routing via LLM
+   - Upper-bound baseline
+   - Requires API credentials
+
+Usage:
+    python baseline.py evaluate --agent random --task task_3 --episodes 10
+    python baseline.py compare --task task_3 --episodes 20
+
+Expected Results (task_3):
+    Random      mean=0.85  std=0.62
+    Heuristic   mean=2.14  std=0.18
+    LLM         mean=2.31  std=0.25
+
+Author: OpenEnv Hackathon Submission
+License: BSD-3-Clause
 """
 
 from __future__ import annotations
 
-import asyncio
+import argparse
 import json
 import os
+import sys
 import textwrap
-from typing import List, Optional
+from abc import ABC, abstractmethod
+from typing import Optional
 
+import numpy as np
 from openai import OpenAI
 
-# ── env / LLM config ──────────────────────────────────────────────────────────
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-IMAGE_NAME   = os.getenv("LOCAL_IMAGE_NAME", "")
-
-TASK_ID      = os.getenv("ECO_LLM_TASK", "task_1")   # task_1 / task_2 / task_3
-BENCHMARK    = "eco_llm_inference_routing"
-
-# ── episode config ────────────────────────────────────────────────────────────
-MAX_STEPS               = 50          # matches MAX_STEPS_PER_EPISODE in tasks.py
-SUCCESS_SCORE_THRESHOLD = 0.5         # normalised score in [0,1]
-TEMPERATURE             = 0.2         # low for deterministic routing decisions
-MAX_TOKENS              = 80
-
-# ── reward normalisation ──────────────────────────────────────────────────────
-# Best-case per step: score=1.0, cache bonus=0.5, no penalties → 1.5
-# Realistic ceiling for normalisation (conservative)
-_MAX_REWARD_PER_STEP = 1.5
-TASK_QUERY_COUNTS    = {"task_1": 1, "task_2": 3, "task_3": 5}
-_MAX_TOTAL_REWARD    = TASK_QUERY_COUNTS.get(TASK_ID, 5) * _MAX_REWARD_PER_STEP
-
-# ── prompts ───────────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = textwrap.dedent("""
-    You are an LLM inference router for the Eco-LLM environment.
-
-    At each step you receive:
-    - The current query
-    - Carbon intensity of the grid (0.0 = clean, 1.0 = very dirty)
-    - Cache contents (queries already answered correctly — re-use them for free)
-    - Whether a knowledge base (KB) is available for this query
-
-    Your goal is to maximise total reward:
-        reward = score − carbon_penalty − latency_penalty + bonuses
-    where:
-        score          = 1.0 if model tier >= query minimum, else 0.0
-        carbon_penalty = carbon_intensity × energy_cost   (capped at 0.8)
-        latency_penalty= 0.1 × latency_cost
-        cache_bonus    = +0.5 for a cache hit
-        early_exit_bonus = +0.1 for EARLY_EXIT when correct
-
-    Model costs:
-        SMALL  — energy 0.1, latency 1.0  (answers queries needing SMALL)
-        MEDIUM — energy 0.3, latency 2.0  (answers queries needing SMALL or MEDIUM)
-        LARGE  — energy 0.6, latency 5.0  (answers any query, but expensive)
-
-    Strategies:
-        NONE       — direct inference with chosen model
-        USE_CACHE  — serve from cache (only if query is in cache_contents)
-        DO_CASCADE — try models small→chosen, stop on exit_flag if correct
-        EARLY_EXIT — direct inference; bonus if correct and exits early
-        WAIT       — skip step to wait for lower carbon (useful when carbon > 0.7)
-        CALL_KB    — use knowledge base (only when kb_available=true)
-
-    Rules:
-    - Prefer SMALL models unless the query requires more capability.
-    - Use USE_CACHE immediately if the query is already in cache_contents.
-    - Use CALL_KB only when kb_available is true.
-    - WAIT only on non-final queries when carbon_intensity > 0.7.
-    - DO_CASCADE with exit_flag=true saves energy by stopping at the first correct answer.
-
-    Respond with ONLY valid JSON, no markdown, no extra text:
-    {
-      "strategy": "<NONE|USE_CACHE|DO_CASCADE|EARLY_EXIT|WAIT|CALL_KB>",
-      "model_choice": "<SMALL|MEDIUM|LARGE>",
-      "exit_flag": <true|false>,
-      "reasoning": "<one short sentence>"
-    }
-""").strip()
+try:
+    from server.env import EcoLLMInferenceRoutingEnvironment
+    from server.models import ModelChoice, RLAction, RLObservation, Strategy
+except ImportError as exc:
+    print(f"ERROR: Cannot import server modules. Ensure you're in the repo root.\n{exc}")
+    sys.exit(1)
 
 
-def build_user_prompt(
-    step: int,
-    query: str,
-    carbon_intensity: float,
-    cache_contents: List[str],
-    kb_available: bool,
-    last_reward: float,
-    history: List[str],
-) -> str:
-    cache_str  = json.dumps(cache_contents) if cache_contents else "[]"
-    hist_block = "\n".join(history[-5:]) if history else "None"
-    in_cache   = query in cache_contents
-    return textwrap.dedent(f"""
-        Step: {step}
-        Query: {query!r}
-        In cache: {str(in_cache).lower()}
-        Cache contents: {cache_str}
-        Carbon intensity: {carbon_intensity:.2f}
-        KB available: {str(kb_available).lower()}
-        Last step reward: {last_reward:.2f}
+class BaseRoutingAgent(ABC):
+    """Abstract base class for routing agents."""
 
-        Recent history:
-        {hist_block}
+    def __init__(self, name: str = "BaseAgent") -> None:
+        self.name = name
 
-        Choose the most energy-efficient correct routing action.
-    """).strip()
+    @abstractmethod
+    def get_action(self, observation: RLObservation) -> RLAction:
+        """Return the next action for a given observation."""
 
 
-# ── stdout helpers ─────────────────────────────────────────────────────────────
+class RandomRoutingAgent(BaseRoutingAgent):
+    """Uniform random lower-bound baseline."""
 
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+    def __init__(self, seed: int = 42) -> None:
+        super().__init__(name="RandomRoutingAgent")
+        self.rng = np.random.RandomState(seed)
+        self.seed = seed
 
-
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    print(
-        f"[STEP] step={step} action={action} "
-        f"reward={reward:.2f} done={str(done).lower()} error={error_val}",
-        flush=True,
-    )
-
-
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
-        flush=True,
-    )
+    def get_action(self, observation: RLObservation) -> RLAction:
+        del observation
+        strategy = self.rng.choice(list(Strategy))
+        model = self.rng.choice(list(ModelChoice))
+        exit_flag = bool(self.rng.random() > 0.5)
+        return RLAction(strategy=strategy, model_choice=model, exit_flag=exit_flag)
 
 
-# ── LLM decision ──────────────────────────────────────────────────────────────
+class HeuristicRoutingAgent(BaseRoutingAgent):
+    """Rule-based mid-tier baseline with cache, KB, wait, and cascade logic."""
 
-def get_routing_action(
-    client: OpenAI,
-    step: int,
-    query: str,
-    carbon_intensity: float,
-    cache_contents: List[str],
-    kb_available: bool,
-    last_reward: float,
-    history: List[str],
-) -> dict:
-    """Call the LLM and parse a routing action. Falls back to a safe heuristic."""
-    user_prompt = build_user_prompt(
-        step, query, carbon_intensity, cache_contents, kb_available, last_reward, history
-    )
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": user_prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        raw = (completion.choices[0].message.content or "").strip()
-        # Strip accidental markdown fences
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        parsed = json.loads(raw)
+    def __init__(self) -> None:
+        super().__init__(name="HeuristicRoutingAgent")
 
-        strategy     = parsed.get("strategy",    "NONE").upper()
-        model_choice = parsed.get("model_choice", "SMALL").upper()
-        exit_flag    = bool(parsed.get("exit_flag", False))
+    def get_action(self, observation: RLObservation) -> RLAction:
+        query = observation.query
+        carbon = observation.carbon_intensity
+        cache = observation.cache_contents
+        kb_available = observation.kb_available
 
-        valid_strategies = {"NONE", "USE_CACHE", "DO_CASCADE", "EARLY_EXIT", "WAIT", "CALL_KB"}
-        valid_models     = {"SMALL", "MEDIUM", "LARGE"}
-        if strategy not in valid_strategies:
-            strategy = "NONE"
-        if model_choice not in valid_models:
-            model_choice = "SMALL"
+        if query in cache:
+            return RLAction(
+                strategy=Strategy.USE_CACHE,
+                model_choice=ModelChoice.SMALL,
+                exit_flag=False,
+            )
 
-        return {"strategy": strategy, "model_choice": model_choice, "exit_flag": exit_flag}
-
-    except Exception as exc:
-        print(f"[DEBUG] LLM routing error at step {step}: {exc}", flush=True)
-        # Safe heuristic fallback
-        if query in cache_contents:
-            return {"strategy": "USE_CACHE", "model_choice": "SMALL", "exit_flag": False}
         if kb_available:
-            return {"strategy": "CALL_KB",   "model_choice": "SMALL", "exit_flag": False}
-        if carbon_intensity > 0.7:
-            return {"strategy": "WAIT",      "model_choice": "SMALL", "exit_flag": False}
-        return {"strategy": "NONE", "model_choice": "SMALL", "exit_flag": True}
-
-
-def action_to_str(action: dict) -> str:
-    """Compact single-token representation for [STEP] line."""
-    s   = action["strategy"]
-    m   = action["model_choice"]
-    ex  = str(action["exit_flag"]).lower()
-    return f"strategy={s},model={m},exit={ex}"
-
-
-# ── main episode loop ─────────────────────────────────────────────────────────
-
-async def run_episode(client: OpenAI) -> None:
-    """
-    Connect to the Eco-LLM environment (docker or direct) and run one episode,
-    emitting mandatory [START] / [STEP] / [END] lines throughout.
-    """
-    # ── environment setup ──────────────────────────────────────────────────
-    # Try docker image first (HF Spaces / CI). Fall back to direct import.
-    env = None
-    try:
-        from openenv.client import AsyncEnvClient  # type: ignore
-        env = AsyncEnvClient(base_url=os.getenv("ENV_BASE_URL", "http://localhost:8000"))
-    except Exception:
-        # Direct import for local dev / evaluation without a running server
-        from server.env import EcoLLMInferenceRoutingEnvironment  # type: ignore
-        env = EcoLLMInferenceRoutingEnvironment()
-
-    rewards:     List[float] = []
-    history:     List[str]   = []
-    steps_taken: int         = 0
-    score:       float       = 0.0
-    success:     bool        = False
-
-    log_start(task=TASK_ID, env=BENCHMARK, model=MODEL_NAME)
-
-    try:
-        # ── reset ──────────────────────────────────────────────────────────
-        if asyncio.iscoroutinefunction(getattr(env, "reset", None)):
-            obs = await env.reset(task_id=TASK_ID)
-        else:
-            obs = env.reset(task_id=TASK_ID)
-
-        # Normalise observation access (client dict vs dataclass)
-        def _obs_field(o, *keys):
-            for k in keys:
-                if isinstance(o, dict):
-                    if k in o: return o[k]
-                else:
-                    if hasattr(o, k): return getattr(o, k)
-            return None
-
-        last_reward = 0.0
-        done        = bool(_obs_field(obs, "done") or False)
-
-        for step in range(1, MAX_STEPS + 1):
-            if done:
-                break
-
-            query            = _obs_field(obs, "query") or ""
-            carbon_intensity = float(_obs_field(obs, "carbon_intensity") or 0.5)
-            cache_contents   = list(_obs_field(obs, "cache_contents") or [])
-
-            # kb_available lives inside metadata.state — extract safely
-            kb_available = False
-            metadata = _obs_field(obs, "metadata") or {}
-            state    = metadata.get("state", {}) if isinstance(metadata, dict) else {}
-            # It's a per-query property; we infer from reward_details if exposed
-            reward_details = _obs_field(obs, "reward_details")
-            if reward_details:
-                trace = getattr(reward_details, "strategy_trace", []) or []
-                kb_available = "kb_lookup" in trace
-
-            action = get_routing_action(
-                client, step, query, carbon_intensity,
-                cache_contents, kb_available, last_reward, history,
-            )
-            action_str = action_to_str(action)
-
-            # ── build RLAction and step ────────────────────────────────────
-            error_msg = None
-            try:
-                from server.models import ModelChoice, RLAction, Strategy  # type: ignore
-                rl_action = RLAction(
-                    strategy=Strategy(action["strategy"]),
-                    model_choice=ModelChoice(action["model_choice"]),
-                    exit_flag=action["exit_flag"],
-                )
-                if asyncio.iscoroutinefunction(getattr(env, "step", None)):
-                    obs = await env.step(rl_action)
-                else:
-                    obs = env.step(rl_action)
-            except Exception as e:
-                error_msg = str(e).replace("\n", " ")[:120]
-                print(f"[DEBUG] step error: {error_msg}", flush=True)
-                done = True
-                log_step(step=step, action=action_str, reward=0.0, done=True, error=error_msg)
-                break
-
-            reward      = float(_obs_field(obs, "reward") or 0.0)
-            done        = bool(_obs_field(obs, "done")   or False)
-            last_reward = reward
-
-            rewards.append(reward)
-            steps_taken = step
-
-            log_step(step=step, action=action_str, reward=reward, done=done, error=error_msg)
-
-            history.append(
-                f"step={step} strategy={action['strategy']} model={action['model_choice']} "
-                f"reward={reward:+.2f} correct={getattr(getattr(obs, 'reward_details', None), 'correct', '?')}"
+            return RLAction(
+                strategy=Strategy.CALL_KB,
+                model_choice=ModelChoice.SMALL,
+                exit_flag=False,
             )
 
-            if done:
-                break
+        if carbon > 0.7:
+            return RLAction(
+                strategy=Strategy.WAIT,
+                model_choice=ModelChoice.SMALL,
+                exit_flag=False,
+            )
 
-        # ── score normalisation ────────────────────────────────────────────
-        raw_total = sum(rewards)
-        max_total = _MAX_TOTAL_REWARD if _MAX_TOTAL_REWARD > 0 else 1.0
-        score     = min(max(raw_total / max_total, 0.0), 1.0)
-        success   = score >= SUCCESS_SCORE_THRESHOLD
+        return RLAction(
+            strategy=Strategy.DO_CASCADE,
+            model_choice=ModelChoice.LARGE,
+            exit_flag=True,
+        )
 
-    finally:
-        # Always close — mandatory per spec
+
+class LLMRoutingAgent(BaseRoutingAgent):
+    """LLM-backed upper-bound baseline with heuristic fallback."""
+
+    SYSTEM_PROMPT = textwrap.dedent(
+        """
+        You are an expert LLM inference router optimizing for:
+        - Accuracy
+        - Energy efficiency
+        - Carbon awareness
+        - Latency
+
+        Available strategies:
+        - USE_CACHE: Serve from cache
+        - CALL_KB: Knowledge base lookup
+        - DO_CASCADE: Try small->medium->large until correct
+        - EARLY_EXIT: Single model, bonus if correct
+        - WAIT: Skip step to wait for lower carbon
+        - NONE: Direct inference
+
+        Respond with ONLY valid JSON:
+        {
+          "strategy": "<strategy>",
+          "model_choice": "<SMALL|MEDIUM|LARGE>",
+          "exit_flag": <true|false>,
+          "reasoning": "<brief explanation>"
+        }
+        """
+    ).strip()
+
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4-mini") -> None:
+        super().__init__(name="LLMRoutingAgent")
+        resolved_api_key = api_key or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+        if not resolved_api_key:
+            raise ValueError("LLMRoutingAgent requires HF_TOKEN or OPENAI_API_KEY environment variable")
+
+        self.client = OpenAI(
+            base_url=os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"),
+            api_key=resolved_api_key,
+        )
+        self.model_name = model_name
+        self._fallback_agent = HeuristicRoutingAgent()
+
+    def get_action(self, observation: RLObservation) -> RLAction:
         try:
-            if asyncio.iscoroutinefunction(getattr(env, "close", None)):
-                await env.close()
-            elif hasattr(env, "close"):
-                env.close()
-        except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+            user_prompt = self._build_prompt(observation)
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=100,
+                timeout=10.0,
+            )
 
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+            raw_response = (completion.choices[0].message.content or "").strip()
+            raw_response = raw_response.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(raw_response)
+
+            strategy = Strategy[parsed.get("strategy", "NONE").upper()]
+            model = ModelChoice[parsed.get("model_choice", "SMALL").upper()]
+            exit_flag = bool(parsed.get("exit_flag", False))
+            return RLAction(strategy=strategy, model_choice=model, exit_flag=exit_flag)
+
+        except Exception as exc:
+            print(f"[DEBUG] LLM error: {exc}, falling back to heuristic", flush=True)
+            return self._fallback_agent.get_action(observation)
+
+    def _build_prompt(self, observation: RLObservation) -> str:
+        cache_str = json.dumps(observation.cache_contents) if observation.cache_contents else "[]"
+        in_cache = observation.query in observation.cache_contents
+        return textwrap.dedent(
+            f"""
+            Query: {observation.query!r}
+            In cache: {str(in_cache).lower()}
+            Cache: {cache_str}
+            Carbon intensity: {observation.carbon_intensity:.2f}
+            KB available: {str(observation.kb_available).lower()}
+
+            Choose the best routing action to maximize reward.
+            """
+        ).strip()
 
 
-# ── entry point ───────────────────────────────────────────────────────────────
+def evaluate_agent(
+    agent: BaseRoutingAgent,
+    task_id: str,
+    num_episodes: int = 10,
+    verbose: bool = True,
+) -> dict:
+    """Run multiple episodes and return summary metrics."""
+    rewards_list: list[float] = []
+
+    for episode in range(num_episodes):
+        env = EcoLLMInferenceRoutingEnvironment()
+        try:
+            obs = env.reset(task_id=task_id)
+            episode_reward = 0.0
+
+            while not obs.done:
+                action = agent.get_action(obs)
+                obs = env.step(action)
+                episode_reward += obs.reward_details.total_reward
+
+            rewards_list.append(float(episode_reward))
+            if verbose:
+                print(f"  Episode {episode + 1:2d}: reward={episode_reward:.4f}")
+        except Exception as exc:
+            print(f"  Episode {episode + 1:2d}: ERROR - {str(exc)[:80]}")
+            rewards_list.append(0.0)
+        finally:
+            close_fn = getattr(env, "close", None)
+            if callable(close_fn):
+                close_fn()
+
+    rewards_array = np.array(rewards_list, dtype=float)
+    return {
+        "mean": float(np.mean(rewards_array)),
+        "std": float(np.std(rewards_array)),
+        "min": float(np.min(rewards_array)),
+        "max": float(np.max(rewards_array)),
+        "rewards": rewards_list,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Eco-LLM Baseline Agent Evaluation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """
+            Examples:
+              python baseline.py evaluate --agent random --task task_3 --episodes 10
+              python baseline.py evaluate --agent heuristic --task task_2 --episodes 5
+              python baseline.py evaluate --agent llm --task task_1 --episodes 3 --api-key $HF_TOKEN
+              python baseline.py compare --task task_3 --episodes 20
+            """
+        ),
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    single = subparsers.add_parser("evaluate", help="Evaluate a single agent")
+    single.add_argument("--agent", choices=["random", "heuristic", "llm"], required=True, help="Agent type")
+    single.add_argument("--task", choices=["task_1", "task_2", "task_3"], default="task_1", help="Task ID")
+    single.add_argument("--episodes", type=int, default=10, help="Number of episodes")
+    single.add_argument("--api-key", help="API key for LLM agent")
+    single.add_argument("--model-name", default="gpt-4-mini", help="LLM model name")
+
+    compare = subparsers.add_parser("compare", help="Compare all agents")
+    compare.add_argument("--task", choices=["task_1", "task_2", "task_3"], default="task_1", help="Task ID")
+    compare.add_argument("--episodes", type=int, default=10, help="Episodes per agent")
+    compare.add_argument("--api-key", help="API key for LLM agent")
+    compare.add_argument("--model-name", default="gpt-4-mini", help="LLM model name")
+    return parser
+
+
+def print_results(title: str, results: dict) -> None:
+    print(f"\n{'=' * 60}")
+    print(f"  Results: {title}")
+    print(f"{'=' * 60}")
+    print(f"  Mean   : {results['mean']:.4f}")
+    print(f"  Std Dev: {results['std']:.4f}")
+    print(f"  Min    : {results['min']:.4f}")
+    print(f"  Max    : {results['max']:.4f}")
+    print(f"{'=' * 60}\n")
+
+
+def create_agent(agent_name: str, api_key: Optional[str], model_name: str) -> BaseRoutingAgent:
+    if agent_name == "random":
+        return RandomRoutingAgent()
+    if agent_name == "heuristic":
+        return HeuristicRoutingAgent()
+    return LLMRoutingAgent(api_key=api_key, model_name=model_name)
+
 
 def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    asyncio.run(run_episode(client))
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if not args.command:
+        args.command = "compare"
+        args.task = "task_1"
+        args.episodes = 10
+        args.api_key = None
+        args.model_name = "gpt-4-mini"
+
+    if args.command == "evaluate":
+        print(f"\n{'=' * 60}")
+        print(f"  Eco-LLM Baseline: {args.agent.upper()} Agent")
+        print(f"  Task: {args.task} | Episodes: {args.episodes}")
+        print(f"{'=' * 60}\n")
+
+        try:
+            agent = create_agent(args.agent, args.api_key, args.model_name)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
+
+        results = evaluate_agent(agent, args.task, args.episodes)
+        print_results(agent.name, results)
+        return
+
+    print(f"\n{'=' * 70}")
+    print("  Eco-LLM Baseline: COMPARISON")
+    print(f"  Task: {args.task} | Episodes: {args.episodes}")
+    print(f"{'=' * 70}\n")
+
+    results_dict: dict[str, dict] = {}
+
+    print("Running Random Agent...")
+    results_dict["Random"] = evaluate_agent(RandomRoutingAgent(), args.task, args.episodes, verbose=False)
+
+    print("Running Heuristic Agent...")
+    results_dict["Heuristic"] = evaluate_agent(HeuristicRoutingAgent(), args.task, args.episodes, verbose=False)
+
+    try:
+        print("Running LLM Agent...")
+        llm_agent = LLMRoutingAgent(api_key=args.api_key, model_name=args.model_name)
+        results_dict["LLM"] = evaluate_agent(llm_agent, args.task, args.episodes, verbose=False)
+    except ValueError:
+        print("Skipping LLM Agent (no API key available)")
+
+    print(f"\n{'=' * 70}")
+    print("  Results Comparison")
+    print(f"{'=' * 70}")
+    print(f"\n{'Agent':<12} {'Mean':<10} {'Std Dev':<10} {'Min':<10} {'Max':<10}")
+    print(f"{'-' * 70}")
+
+    for agent_name, results in results_dict.items():
+        print(
+            f"{agent_name:<12} {results['mean']:<10.4f} "
+            f"{results['std']:<10.4f} {results['min']:<10.4f} {results['max']:<10.4f}"
+        )
+
+    print("\nRelative Performance:")
+    print(f"{'-' * 70}")
+    if "Heuristic" in results_dict and "Random" in results_dict:
+        ratio = results_dict["Heuristic"]["mean"] / (results_dict["Random"]["mean"] + 1e-6)
+        print(f"  Heuristic > Random: {ratio:.2f}x")
+
+    if "LLM" in results_dict and "Heuristic" in results_dict:
+        ratio = results_dict["LLM"]["mean"] / (results_dict["Heuristic"]["mean"] + 1e-6)
+        print(f"  LLM > Heuristic: {ratio:.2f}x")
+
+    print(f"{'=' * 70}\n")
 
 
 if __name__ == "__main__":

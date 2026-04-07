@@ -4,16 +4,16 @@ inference.py — Eco-LLM Inference Routing Environment
 Spec-compliant inference script for the OpenEnv hackathon.
 
 Environment variables (required):
-    HF_TOKEN / API_KEY   Your Hugging Face or API key
+    HF_TOKEN             Your Hugging Face or compatible API key
     API_BASE_URL         LLM endpoint  (default: https://router.huggingface.co/v1)
-    MODEL_NAME           Model ID       (default: Qwen/Qwen2.5-72B-Instruct)
+    MODEL_NAME           Model ID       (default: gpt-4-mini)
     ECO_LLM_TASK         Task to run    (default: task_1  |  task_1 / task_2 / task_3)
     LOCAL_IMAGE_NAME     Docker image name (if using from_docker_image)
 
 Stdout format (mandatory):
     [START] task=<task> env=eco_llm_inference_routing model=<model>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
-    [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,r2,...>
+    [END]   success=<true|false> steps=<n> rewards=<r1,r2,...>
 """
 
 from __future__ import annotations
@@ -27,9 +27,17 @@ from typing import List, Optional
 from openai import OpenAI
 
 # ── env / LLM config ──────────────────────────────────────────────────────────
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN is None or HF_TOKEN.strip() == "":
+    raise ValueError(
+        "ERROR: HF_TOKEN environment variable is mandatory and must not be empty.\n"
+        "Please set: export HF_TOKEN='your_hugging_face_token'\n"
+        "Or: export HF_TOKEN='your_anthropic_api_key' for Claude models"
+    )
+
+API_KEY = HF_TOKEN
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4-mini")
 IMAGE_NAME   = os.getenv("LOCAL_IMAGE_NAME", "")
 
 TASK_ID      = os.getenv("ECO_LLM_TASK", "task_1")   # task_1 / task_2 / task_3
@@ -140,11 +148,17 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    """
+    Emit [END] line according to OpenEnv spec.
+    Format: [END] success=<true|false> steps=<n> rewards=<r1,r2,...,rn>
+    """
+    del steps
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    steps_count = len(rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.2f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps_count} "
+        f"rewards={rewards_str}",
         flush=True,
     )
 
@@ -175,6 +189,7 @@ def get_routing_action(
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             stream=False,
+            timeout=10.0,
         )
         raw = (completion.choices[0].message.content or "").strip()
         # Strip accidental markdown fences
@@ -194,6 +209,9 @@ def get_routing_action(
 
         return {"strategy": strategy, "model_choice": model_choice, "exit_flag": exit_flag}
 
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        print(f"[DEBUG] LLM timeout at step {step}: request exceeded 10s - {str(exc)}", flush=True)
+        return {"strategy": "NONE", "model_choice": "SMALL", "exit_flag": False}
     except Exception as exc:
         print(f"[DEBUG] LLM routing error at step {step}: {exc}", flush=True)
         # Safe heuristic fallback
@@ -329,7 +347,7 @@ async def run_episode(client: OpenAI) -> None:
         except Exception as e:
             print(f"[DEBUG] env.close() error: {e}", flush=True)
 
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
