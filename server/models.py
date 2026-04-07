@@ -59,6 +59,7 @@ class RLObservation(Observation):
     )
     carbon_intensity: float = Field(..., ge=0.0, le=1.0, description="Current carbon intensity")
     reward_details: RLReward = Field(..., description="Structured reward payload")
+    kb_available: bool = Field(default=False, description="Whether KB is available for current query")
 
 
 class RLState(State):

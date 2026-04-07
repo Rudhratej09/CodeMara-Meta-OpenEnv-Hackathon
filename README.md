@@ -60,7 +60,7 @@ reward = score − carbon_penalty − latency_penalty + bonuses
 |---|---|---|
 | `score` | `1.0` if correct, else `0.0` | Primary accuracy signal |
 | `carbon_penalty` | `carbon_intensity × energy_cost` | Penalises dirty-grid inference |
-| `latency_penalty` | `0.01 × latency_cost` | Soft latency pressure |
+| `latency_penalty` | `0.1 × latency_cost` | Soft latency pressure |
 | `bonuses` | Cache hit: `+0.5`, Early exit: `+0.1` | Efficiency rewards |
 | Task penalty | Configurable per task (e.g. `−0.2` for LARGE on task 2) | Discourages over-provisioning |
 
@@ -133,6 +133,29 @@ The server exposes OpenEnv-standard endpoints at `http://localhost:8000`:
 - `POST /reset` — start a new episode
 - `POST /step` — take an action
 - `GET /state` — inspect current state
+
+---
+
+## Running the Inference Script
+
+The submission-ready inference script is `inference.py` in the repo root. It uses the OpenAI-compatible client and emits mandatory `[START]`/`[STEP]`/`[END]` logs.
+
+```bash
+# Required environment variables
+export HF_TOKEN=your_hf_token
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+export ECO_LLM_TASK=task_1   # task_1 | task_2 | task_3
+
+python inference.py
+```
+
+**Example output:**
+```
+[START] task=task_1 env=eco_llm_inference_routing model=Qwen/Qwen2.5-72B-Instruct
+[STEP] step=1 action=strategy=NONE,model=MEDIUM,exit=false reward=0.68 done=true error=null
+[END] success=true steps=1 score=0.68 rewards=0.68
+```
 
 ---
 

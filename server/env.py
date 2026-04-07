@@ -226,6 +226,7 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
             done=done,
             reward=reward.total_reward,
             reward_details=reward,
+            kb_available=query.kb_available,
             metadata={
                 "task_id": self.current_task.task_id,
                 "difficulty": self.current_task.difficulty,
