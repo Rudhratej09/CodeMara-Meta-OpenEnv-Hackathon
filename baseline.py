@@ -16,10 +16,15 @@ Expected Results (task_3):
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+import textwrap
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import numpy as np
+from openai import OpenAI
 
 try:
     from server.env import EcoLLMInferenceRoutingEnvironment
@@ -104,6 +109,80 @@ class HeuristicRoutingAgent(BaseRoutingAgent):
         )
 
 
+class LLMRoutingAgent(BaseRoutingAgent):
+    """
+    LLM-based baseline agent.
+
+    Policy: Uses an LLM to make routing decisions.
+    Purpose: Upper-bound baseline (intelligent agent).
+    """
+
+    SYSTEM_PROMPT = textwrap.dedent(
+        """
+        You are an expert LLM inference router.
+        Optimize for accuracy, energy efficiency, carbon awareness, and latency.
+
+        Available strategies: NONE, USE_CACHE, DO_CASCADE, EARLY_EXIT, WAIT, CALL_KB
+        Models: SMALL, MEDIUM, LARGE
+
+        Respond with ONLY valid JSON:
+        {"strategy": "...", "model_choice": "...", "exit_flag": true/false}
+        """
+    ).strip()
+
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4-mini") -> None:
+        super().__init__(name="LLMRoutingAgent")
+        resolved_api_key = api_key or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+        if not resolved_api_key:
+            raise ValueError("LLM agent requires HF_TOKEN or OPENAI_API_KEY")
+
+        self.client = OpenAI(
+            base_url=os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"),
+            api_key=resolved_api_key,
+        )
+        self.model_name = model_name
+
+    def get_action(self, observation: RLObservation) -> RLAction:
+        """Query the LLM for a routing decision."""
+        try:
+            query = observation.query
+            carbon = observation.carbon_intensity
+            cache = json.dumps(observation.cache_contents) if observation.cache_contents else "[]"
+
+            prompt = f"""
+Query: {query!r}
+Carbon intensity: {carbon:.2f}
+Cache: {cache}
+
+Choose the best routing strategy and model.
+            """.strip()
+
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=100,
+                timeout=10.0,
+            )
+
+            raw = (response.choices[0].message.content or "").strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(raw)
+
+            strategy = Strategy[parsed.get("strategy", "NONE").upper()]
+            model_choice = ModelChoice[parsed.get("model_choice", "SMALL").upper()]
+            exit_flag = bool(parsed.get("exit_flag", False))
+            return RLAction(strategy=strategy, model_choice=model_choice, exit_flag=exit_flag)
+
+        except Exception as exc:
+            print(f"[DEBUG] LLM error: {exc}, using heuristic", flush=True)
+            heuristic = HeuristicRoutingAgent()
+            return heuristic.get_action(observation)
+
+
 def evaluate_agent(
     agent: BaseRoutingAgent,
     task_id: str,
@@ -151,6 +230,7 @@ def main() -> None:
 Examples:
   python baseline.py evaluate --agent random --task task_1 --episodes 10
   python baseline.py evaluate --agent heuristic --task task_3 --episodes 10
+  python baseline.py evaluate --agent llm --task task_3 --episodes 10 --api-key $HF_TOKEN
   python baseline.py compare --task task_3 --episodes 20
         """,
     )
@@ -160,7 +240,7 @@ Examples:
     evaluate_parser = subparsers.add_parser("evaluate", help="Evaluate a single agent")
     evaluate_parser.add_argument(
         "--agent",
-        choices=["random", "heuristic"],
+        choices=["random", "heuristic", "llm"],
         default="heuristic",
         help="Agent type",
     )
@@ -176,6 +256,16 @@ Examples:
         default=10,
         help="Number of episodes",
     )
+    evaluate_parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key for LLM agent (defaults to HF_TOKEN)",
+    )
+    evaluate_parser.add_argument(
+        "--model-name",
+        default="gpt-4-mini",
+        help="LLM model name",
+    )
 
     compare_parser = subparsers.add_parser("compare", help="Compare all agents")
     compare_parser.add_argument(
@@ -190,6 +280,16 @@ Examples:
         default=10,
         help="Episodes per agent",
     )
+    compare_parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key for LLM agent (defaults to HF_TOKEN)",
+    )
+    compare_parser.add_argument(
+        "--model-name",
+        default="gpt-4-mini",
+        help="LLM model name",
+    )
 
     args = parser.parse_args()
 
@@ -202,8 +302,14 @@ Examples:
 
         if args.agent == "random":
             agent = RandomRoutingAgent()
-        else:
+        elif args.agent == "heuristic":
             agent = HeuristicRoutingAgent()
+        else:
+            try:
+                agent = LLMRoutingAgent(api_key=args.api_key, model_name=args.model_name)
+            except ValueError as exc:
+                print(f"ERROR: {exc}")
+                sys.exit(1)
 
         results = evaluate_agent(agent, args.task, args.episodes)
 
@@ -237,6 +343,13 @@ Examples:
             verbose=False,
         )
 
+        try:
+            print("\nRunning LLM Agent...")
+            agent_llm = LLMRoutingAgent(api_key=args.api_key, model_name=args.model_name)
+            results_dict["LLM"] = evaluate_agent(agent_llm, args.task, args.episodes, verbose=False)
+        except ValueError:
+            print("Skipping LLM Agent (no API key available)")
+
         print(f"\n{'=' * 70}")
         print("  Results Comparison")
         print(f"{'=' * 70}\n")
@@ -254,6 +367,9 @@ Examples:
         if "Heuristic" in results_dict and "Random" in results_dict:
             ratio = results_dict["Heuristic"]["mean"] / (results_dict["Random"]["mean"] + 1e-6)
             print(f"  Heuristic > Random: {ratio:.2f}x")
+        if "LLM" in results_dict and "Heuristic" in results_dict:
+            ratio = results_dict["LLM"]["mean"] / (results_dict["Heuristic"]["mean"] + 1e-6)
+            print(f"  LLM > Heuristic: {ratio:.2f}x")
 
         print(f"{'=' * 70}\n")
 
