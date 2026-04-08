@@ -1,8 +1,9 @@
+
 """FastAPI app for the Eco-LLM Inference Routing environment."""
 from __future__ import annotations
 
-from fastapi import FastAPI
 from openenv.core.env_server.http_server import create_app
+from fastapi.responses import RedirectResponse
 
 from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import RLAction, RLObservation, Strategy, ModelChoice
@@ -11,8 +12,8 @@ import gradio as gr
 from gradio.routes import mount_gradio_app
 
 
-# 🔥 STEP 1: Create OpenEnv app separately
-base_app = create_app(
+# 🔥 OpenEnv app (DO NOT CHANGE)
+app = create_app(
     EcoLLMInferenceRoutingEnvironment,
     RLAction,
     RLObservation,
@@ -20,17 +21,17 @@ base_app = create_app(
     max_concurrent_envs=4,
 )
 
-# 🔥 STEP 2: Create clean FastAPI app
-app = FastAPI()
-
-# 🔥 STEP 3: Mount OpenEnv under /api (NO CONFLICTS)
-app = base_app
-
 
 # ✅ REQUIRED FOR EVALUATOR
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# 🔥 FORCE ROOT → YOUR UI (IMPORTANT FIX)
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/ui")
 
 
 # ─────────────────────────────────────────
@@ -114,7 +115,7 @@ def step_demo(strategy: str, model: str, exit_flag: bool, state: dict) -> tuple:
     return log, breakdown, round(total_reward, 3), updated_state
 
 
-# 🔥 FIXED DROPDOWNS (IMPORTANT)
+# 🔥 UI
 with gr.Blocks(title="Eco-LLM Routing") as demo:
     demo_state = gr.State({"env": None, "obs": None, "history": [], "total_reward": 0.0})
 
@@ -151,7 +152,7 @@ with gr.Blocks(title="Eco-LLM Routing") as demo:
     step_btn.click(step_demo, [strategy_dd, model_dd, exit_cb, demo_state], [obs_box, reward_box, total_num, demo_state])
 
 
-# 🔥 STEP 4: Mount UI at ROOT (NO CONFLICT NOW)
+# 🔥 Mount UI safely
 app = mount_gradio_app(app, demo, path="/ui")
 
 
