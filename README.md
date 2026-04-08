@@ -1,4 +1,5 @@
 ---
+<<<<<<< HEAD
 title: Eco-LLM Inference Routing Environment
 emoji: "🌱"
 colorFrom: green
@@ -333,3 +334,16 @@ This environment conforms to the [OpenEnv spec](https://github.com/meta-pytorch/
 
 BSD-style license — see [LICENSE](./LICENSE) for full terms.  
 Copyright (c) Meta Platforms, Inc. and affiliates.
+=======
+title: Eco LLM Carbon Aware LLM Inference Routing
+emoji: 🦀
+colorFrom: gray
+colorTo: purple
+sdk: docker
+pinned: false
+license: mit
+short_description: 'Eco-LLM: Carbon-aware LLM routing environment.'
+---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+>>>>>>> 6ee29eb (initial commit)
