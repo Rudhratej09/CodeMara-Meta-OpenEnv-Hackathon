@@ -29,11 +29,6 @@ from openai import OpenAI
 # ENVIRONMENT & CONFIG
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-if HF_TOKEN is None or HF_TOKEN.strip() == "":
-    raise ValueError(
-        "ERROR: HF_TOKEN environment variable is mandatory and must not be empty.\n"
-        "Please set: export HF_TOKEN='your_hugging_face_token'"
-    )
 
 API_KEY = HF_TOKEN
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
@@ -339,6 +334,11 @@ async def run_episode(client: OpenAI) -> None:
 
 def main() -> None:
     """Main entry point."""
+    if not HF_TOKEN or not HF_TOKEN.strip():
+        raise ValueError(
+            "ERROR: HF_TOKEN environment variable is mandatory.\n"
+            "Please set: export HF_TOKEN='your_hugging_face_token'"
+        )
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     asyncio.run(run_episode(client))
 

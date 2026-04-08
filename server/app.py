@@ -30,48 +30,48 @@ try:
     import gradio as gr
     from gradio.routes import mount_gradio_app
 
-    # One shared env instance for the demo (isolated from evaluator sessions)
-    _demo_env = EcoLLMInferenceRoutingEnvironment()
-    _demo_state: dict = {"obs": None, "task": "task_1", "history": [], "total_reward": 0.0}
-
-    def reset_demo(task_id: str) -> tuple:
-        _demo_state["task"] = task_id
-        _demo_state["history"] = []
-        _demo_state["total_reward"] = 0.0
-        obs = _demo_env.reset(task_id=task_id)
-        _demo_state["obs"] = obs
-        log = f"🔄 Reset — Task: {task_id} ({obs.metadata['difficulty']})\n"
+    def reset_demo(task_id: str, state: dict) -> tuple:
+        demo_env = EcoLLMInferenceRoutingEnvironment()
+        obs = demo_env.reset(task_id=task_id)
+        updated_state = {
+            "env": demo_env,
+            "obs": obs,
+            "history": [],
+            "total_reward": 0.0,
+        }
+        log = f"🔄 Reset — Task: {task_id} ({demo_env.current_task.difficulty})\n"
         log += f"📋 Query: {obs.query}\n"
         log += f"🌍 Carbon intensity: {obs.carbon_intensity:.2f}\n"
         log += f"💾 Cache: {obs.cache_contents or 'empty'}\n"
         log += f"🔌 KB available: {obs.kb_available}"
-        return log, "", 0.0
+        return log, "", 0.0, updated_state
 
-    def step_demo(strategy: str, model: str, exit_flag: bool) -> tuple:
-        if _demo_state["obs"] is None:
-            return "⚠️ Click Reset first!", "", 0.0
-        obs = _demo_state["obs"]
+    def step_demo(strategy: str, model: str, exit_flag: bool, state: dict) -> tuple:
+        demo_env = state.get("env")
+        if demo_env is None or state["obs"] is None:
+            return "⚠️ Click Reset first!", "", 0.0, state
+        obs = state["obs"]
         if obs.done:
-            return "✅ Episode done — click Reset to start again.", "", _demo_state["total_reward"]
+            return "✅ Episode done — click Reset to start again.", "", state["total_reward"], state
 
         action = RLAction(
             strategy=Strategy(strategy),
             model_choice=ModelChoice(model),
             exit_flag=exit_flag,
         )
-        new_obs = _demo_env.step(action)
-        _demo_state["obs"] = new_obs
+        new_obs = demo_env.step(action)
+        history = list(state["history"])
         rd = new_obs.reward_details
-        _demo_state["total_reward"] += rd.total_reward
+        total_reward = state["total_reward"] + rd.total_reward
 
         history_line = (
-            f"Step {len(_demo_state['history'])+1}: "
+            f"Step {len(history)+1}: "
             f"{strategy}+{model} → reward={rd.total_reward:+.3f} "
             f"({'✅' if rd.correct else '❌'})"
         )
-        _demo_state["history"].append(history_line)
+        history.append(history_line)
 
-        log = "\n".join(_demo_state["history"]) + "\n\n"
+        log = "\n".join(history) + "\n\n"
         if not new_obs.done:
             log += f"📋 Next query: {new_obs.query}\n"
             log += f"🌍 Carbon intensity: {new_obs.carbon_intensity:.2f}\n"
@@ -88,9 +88,16 @@ try:
             f"bonuses={rd.bonuses:.2f}  "
             f"→ total={rd.total_reward:+.3f}"
         )
-        return log, breakdown, round(_demo_state["total_reward"], 3)
+        updated_state = {
+            "env": demo_env,
+            "obs": new_obs,
+            "history": history,
+            "total_reward": total_reward,
+        }
+        return log, breakdown, round(total_reward, 3), updated_state
 
     with gr.Blocks(title="Eco-LLM Routing Demo") as demo:
+        demo_state = gr.State({"obs": None, "history": [], "total_reward": 0.0})
         gr.Markdown("""
         # 🌱 Eco-LLM Inference Routing Environment
         **Carbon-aware LLM query routing** — balance accuracy, energy, latency & carbon footprint.
@@ -136,8 +143,16 @@ try:
         | LARGE | 0.6 | 5.0s | | WAIT | drops carbon next step |
         """)
 
-        reset_btn.click(reset_demo, inputs=[task_selector], outputs=[obs_box, reward_breakdown, total_reward_num])
-        step_btn.click(step_demo, inputs=[strategy_dd, model_dd, exit_cb], outputs=[obs_box, reward_breakdown, total_reward_num])
+        reset_btn.click(
+            reset_demo,
+            inputs=[task_selector, demo_state],
+            outputs=[obs_box, reward_breakdown, total_reward_num, demo_state],
+        )
+        step_btn.click(
+            step_demo,
+            inputs=[strategy_dd, model_dd, exit_cb, demo_state],
+            outputs=[obs_box, reward_breakdown, total_reward_num, demo_state],
+        )
 
     app = mount_gradio_app(app, demo, path="/ui")
 
