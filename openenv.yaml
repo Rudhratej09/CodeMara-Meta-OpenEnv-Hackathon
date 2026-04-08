@@ -1,0 +1,8 @@
+spec_version: 1
+name: eco_llm_inference_routing
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+description: "Carbon-aware RL environment for multi-objective LLM query routing"
+version: "1.0.0"
