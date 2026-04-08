@@ -28,4 +28,8 @@ server = "server.app:main"
 [tool.setuptools]
 include-package-data = true
 packages = ["server"]
+py-modules = ["baseline", "inference"]
 package-dir = { "server" = "server" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

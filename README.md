@@ -1,3 +1,13 @@
+---
+title: Eco-LLM Inference Routing Environment
+emoji: "🌱"
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Eco-LLM Inference Routing Environment
 
 > An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible reinforcement learning environment for carbon-aware, multi-objective LLM query routing.
@@ -46,7 +56,7 @@ Each `RLObservation` contains:
 | `query` | The current query text |
 | `carbon_intensity` | Grid carbon intensity this step (0.0 = clean, 1.0 = dirty) |
 | `cache_contents` | List of queries already answered correctly (available for free re-use) |
-| `correct_answer` | Ground-truth answer (used for grading) |
+| `kb_available`     | Whether a knowledge base is available for the current query  |
 | `reward_details` | Full structured `RLReward` breakdown |
 | `done` | Whether the episode has ended |
 
@@ -281,15 +291,21 @@ Build and run the environment as a container:
 
 ```bash
 # Build
-docker build -t eco-llm-routing -f deployment/Dockerfile .
+docker build -t eco-llm-routing .
 
 # Run
-docker run -p 8000:8000 eco-llm-routing
+docker run -p 7860:7860 eco-llm-routing
 ```
 
-The container serves the OpenEnv HTTP interface at port 8000 and includes a health check at `GET /health`.
+The container serves the OpenEnv HTTP interface at port 7860 and includes a health check at `GET /health`.
 
-To deploy to Hugging Face Spaces via the OpenEnv CLI:
+To deploy to Hugging Face Spaces:
+
+1. Create a new Docker Space on Hugging Face.
+2. Push this repository to that Space.
+3. Hugging Face will read the `README.md` front matter and start the container on port `7860`.
+
+To deploy via the OpenEnv CLI:
 
 ```bash
 pip install openenv-core

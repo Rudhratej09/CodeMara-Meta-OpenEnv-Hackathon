@@ -1,5 +1,9 @@
 """Unit tests for baseline agents."""
 
+import pytest
+
+pytest.importorskip("openenv")
+
 from baseline import HeuristicRoutingAgent, RandomRoutingAgent
 from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import Strategy
