@@ -1,5 +1,4 @@
 ---
-<<<<<<< HEAD
 title: Eco-LLM Inference Routing Environment
 emoji: "🌱"
 colorFrom: green
@@ -8,7 +7,6 @@ sdk: docker
 app_port: 7860
 pinned: false
 ---
-
 # Eco-LLM Inference Routing Environment
 
 > An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible reinforcement learning environment for carbon-aware, multi-objective LLM query routing.
@@ -130,7 +128,6 @@ eco_llm_inference_routing/
 ```bash
 # With uv (recommended)
 uv sync
-
 # With pip
 pip install -e .
 ```
@@ -160,7 +157,6 @@ export HF_TOKEN=your_hf_token
 export API_BASE_URL=https://router.huggingface.co/v1
 export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
 export ECO_LLM_TASK=task_1   # task_1 | task_2 | task_3
-
 python inference.py
 ```
 
@@ -185,7 +181,6 @@ python baseline.py evaluate --agent random --task task_3 --episodes 10
 python baseline.py evaluate --agent heuristic --task task_3 --episodes 10
 python baseline.py evaluate --agent llm --task task_3 --episodes 10 \
   --api-key $HF_TOKEN --model-name Qwen/Qwen2.5-72B-Instruct
-
 # Compare all agents on same task
 python baseline.py compare --task task_3 --episodes 20
 ```
@@ -222,18 +217,15 @@ python baseline.py compare --task task_3 --episodes 20
 
 ```bash
 $ python baseline.py compare --task task_3 --episodes 20
-
 ======================================================================
   Eco-LLM Baseline: COMPARISON
   Task: task_3 | Episodes: 20
 ======================================================================
-
 Agent            Mean       Std Dev    Min        Max
 ----------------------------------------------------------------------
 Random           0.8450     0.6200     0.0000     2.1000
 Heuristic        2.1400     0.1800     1.9000     2.5000
 LLM              2.3100     0.2500     1.8000     2.8000
-
 Relative Performance:
   Heuristic > Random: 2.53x
   LLM > Heuristic: 1.08x
@@ -245,10 +237,8 @@ Relative Performance:
 ```bash
 # Easy task (1 query)
 python baseline.py compare --task task_1 --episodes 50
-
 # Medium task (3 queries)
 python baseline.py compare --task task_2 --episodes 30
-
 # Hard task (5 queries, stateful)
 python baseline.py compare --task task_3 --episodes 20
 ```
@@ -260,7 +250,6 @@ The LLM agent requires an API key. Set one of:
 ```bash
 # Hugging Face (recommended for Qwen, Llama)
 export HF_TOKEN='hf_xxxxxxxxxxxxx'
-
 # OpenAI (for GPT models)
 export OPENAI_API_KEY='sk-xxxxxxxxxxxxx'
 ```
@@ -296,7 +285,6 @@ Build and run the environment as a container with the root `Dockerfile`:
 ```bash
 # Build
 docker build -t eco-llm-routing .
-
 # Run
 docker run -p 7860:7860 eco-llm-routing
 ```
@@ -334,16 +322,3 @@ This environment conforms to the [OpenEnv spec](https://github.com/meta-pytorch/
 
 BSD-style license — see [LICENSE](./LICENSE) for full terms.  
 Copyright (c) Meta Platforms, Inc. and affiliates.
-=======
-title: Eco LLM Carbon Aware LLM Inference Routing
-emoji: 🦀
-colorFrom: gray
-colorTo: purple
-sdk: docker
-pinned: false
-license: mit
-short_description: 'Eco-LLM: Carbon-aware LLM routing environment.'
----
-
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
->>>>>>> 6ee29eb (initial commit)
