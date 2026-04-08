@@ -24,7 +24,7 @@ base_app = create_app(
 app = FastAPI()
 
 # 🔥 STEP 3: Mount OpenEnv under /api (NO CONFLICTS)
-app.mount("/api", base_app)
+app = base_app
 
 
 # ✅ REQUIRED FOR EVALUATOR
@@ -152,7 +152,7 @@ with gr.Blocks(title="Eco-LLM Routing") as demo:
 
 
 # 🔥 STEP 4: Mount UI at ROOT (NO CONFLICT NOW)
-app = mount_gradio_app(app, demo, path="/")
+app = mount_gradio_app(app, demo, path="/ui")
 
 
 def main(host: str = "0.0.0.0", port: int = 7860) -> None:
