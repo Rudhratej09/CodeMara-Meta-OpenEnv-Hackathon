@@ -60,11 +60,16 @@ class RLObservation(Observation):
     carbon_intensity: float = Field(..., ge=0.0, le=1.0, description="Current carbon intensity")
     reward_details: RLReward = Field(..., description="Structured reward payload")
     kb_available: bool = Field(default=False, description="Whether KB is available for current query")
+    reward: float = Field(default=0.0, description="Step reward for this transition")
+    done: bool = Field(default=False, description="Whether episode has terminated")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional state metadata")
 
 
 class RLState(State):
     """Internal environment state."""
 
+    episode_id: str = Field(..., description="Unique episode identifier")
+    step_count: int = Field(default=0, ge=0, description="Total steps taken in episode")
     task_id: str = Field(..., description="Active task identifier")
     step_index: int = Field(..., ge=0, description="Index within the current task trajectory")
     query_index: int = Field(..., ge=0, description="Index of the active query")
