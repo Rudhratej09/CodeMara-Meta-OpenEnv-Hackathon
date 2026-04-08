@@ -41,5 +41,5 @@ jobs:
 
       - name: Test Docker build
         run: |
-          docker build -t eco-llm-routing -f deployment/Dockerfile .
+          docker build -t eco-llm-routing -f Dockerfile .
         continue-on-error: true

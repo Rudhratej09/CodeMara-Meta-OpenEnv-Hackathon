@@ -22,7 +22,7 @@ RUN apt-get update && \
 
 # Build argument to control whether we're building standalone or in-repo
 ARG BUILD_MODE=in-repo
-ARG ENV_NAME=deployment
+ARG ENV_NAME=eco_llm_inference_routing
 
 # Copy environment code (always at root of build context)
 COPY . /app/env

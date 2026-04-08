@@ -102,13 +102,13 @@ eco_llm_inference_routing/
 ├── pyproject.toml        # Python package and dependency config
 ├── uv.lock               # Locked dependency tree
 ├── baseline.py           # Baseline agents and CLI runner
-├── server/
-│   ├── app.py            # FastAPI app (OpenEnv HTTP server)
-│   ├── env.py            # EcoLLMInferenceRoutingEnvironment (core logic)
-│   ├── models.py         # RLAction, RLObservation, RLState, RLReward
-│   └── tasks.py          # Task definitions, query specs, reward constants
-└── deployment/
-    └── Dockerfile        # Multi-stage build from openenv-base
+├── Dockerfile            # Multi-stage container build from openenv-base
+└── server/
+    ├── __init__.py       # Python package marker
+    ├── app.py            # FastAPI app (OpenEnv HTTP server)
+    ├── env.py            # EcoLLMInferenceRoutingEnvironment (core logic)
+    ├── models.py         # RLAction, RLObservation, RLState, RLReward
+    └── tasks.py          # Task definitions, query specs, reward constants
 ```
 
 ---
@@ -287,7 +287,7 @@ Key insights:
 
 ## Docker Deployment
 
-Build and run the environment as a container:
+Build and run the environment as a container with the root `Dockerfile`:
 
 ```bash
 # Build
