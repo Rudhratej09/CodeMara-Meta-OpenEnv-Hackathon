@@ -11,6 +11,9 @@ pinned: false
 # Eco-LLM Inference Routing Environment
 
 > An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible reinforcement learning environment for carbon-aware, multi-objective LLM query routing.
+> link to hugging face space of the environment->https://huggingface.co/spaces/rudhratej09/Eco-LLM-Carbon-Aware-LLM-Inference-Routing
+
+
 
 ---
 
