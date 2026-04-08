@@ -9,8 +9,9 @@ description = "Eco-LLM Inference Routing environment for OpenEnv"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
+    "numpy>=1.26.0",
     "openenv-core[core]>=0.2.2",
-    "openai>=1.0.0",
+    "openai>=1.40.0",
     "pydantic>=2.8.0",
     "uvicorn>=0.30.0",
 ]
