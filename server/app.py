@@ -23,12 +23,18 @@ app = create_app(
 )
 
 @app.get("/")
+<<<<<<< HEAD
 def root():
     return {"status": "ok", "service": "eco_llm_inference_routing"}
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+=======
+async def root():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/ui")
+>>>>>>> 587bffd (fix: redirect root to Gradio /ui)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
