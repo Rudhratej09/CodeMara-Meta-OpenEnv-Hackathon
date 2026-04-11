@@ -7,19 +7,34 @@ port: 7860
 description: "Carbon-aware RL environment for multi-objective LLM query routing"
 version: "1.0.0"
 
+# ── Tasks (Phase 2 validator requires ≥ 3 with graders) ──────────────────────
 tasks:
   - id: task_1
-    name: Single Query Routing
+    name: "Single Query Routing (Easy)"
     difficulty: easy
-    description: "Route a single LLM query to the optimal model tier"
-    grader: true
+    max_steps: 10
+    num_queries: 1
+    max_reward: 1.5
+    description: "Route a single LLM query to the optimal model tier."
+    grader: "server.app:grade_episode"
+    score_range: [0.0, 1.0]
+
   - id: task_2
-    name: Multi-Query Episode
+    name: "Multi-Query Episode (Medium)"
     difficulty: medium
-    description: "Route 3 queries while penalizing LARGE model overuse"
-    grader: true
+    max_steps: 20
+    num_queries: 3
+    max_reward: 4.5
+    description: "Route 3 queries; LARGE model penalised -0.2 per use."
+    grader: "server.app:grade_episode"
+    score_range: [0.0, 1.0]
+
   - id: task_3
-    name: Stateful Carbon-Aware Routing
+    name: "Stateful Carbon-Aware Routing (Hard)"
     difficulty: hard
-    description: "5-query stateful episode with caching, KB lookups, and carbon-aware waiting"
-    grader: true
+    max_steps: 50
+    num_queries: 5
+    max_reward: 7.5
+    description: "5-query episode with caching, KB lookups, and carbon-aware waiting."
+    grader: "server.app:grade_episode"
+    score_range: [0.0, 1.0]
