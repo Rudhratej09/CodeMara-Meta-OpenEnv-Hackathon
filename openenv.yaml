@@ -6,3 +6,20 @@ app: server.app:app
 port: 7860
 description: "Carbon-aware RL environment for multi-objective LLM query routing"
 version: "1.0.0"
+
+tasks:
+  - id: task_1
+    name: Single Query Routing
+    difficulty: easy
+    description: "Route a single LLM query to the optimal model tier"
+    grader: true
+  - id: task_2
+    name: Multi-Query Episode
+    difficulty: medium
+    description: "Route 3 queries while penalizing LARGE model overuse"
+    grader: true
+  - id: task_3
+    name: Stateful Carbon-Aware Routing
+    difficulty: hard
+    description: "5-query stateful episode with caching, KB lookups, and carbon-aware waiting"
+    grader: true
