@@ -40,8 +40,19 @@ def health():
 
 @app.get("/tasks")
 def list_tasks():
-    return {tid: {"task_id": tid, "bounds": _GRADER_BOUNDS.get(tid)} for tid in TASKS.keys()}
-
+    return {
+        "tasks": [
+            {"id": "task_1", "name": "Single Query Routing", "difficulty": "easy"},
+            {"id": "task_2", "Multi-Query Episode", "difficulty": "medium"},
+            {"id": "task_3", "Stateful Carbon-Aware Routing", "difficulty": "hard"},
+        ]
+    }
+@app.post("/reset")
+def reset(body: dict = {}):
+    task_id = body.get("task_id", "task_1")
+    obs = env.reset(task_id=task_id)
+    return obs
+    
 @app.post("/grader")
 def grade_episode(request: GraderRequest):
     # Validate task_id
