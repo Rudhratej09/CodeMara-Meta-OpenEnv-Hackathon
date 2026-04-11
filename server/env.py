@@ -218,21 +218,29 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
         )
 
     def _build_observation(self, reward: RLReward, done: bool) -> RLObservation:
-        query = self.current_task.queries[-1] if done else self.current_query
-        return RLObservation(
-            query=query.text,
-            cache_contents=self.cache_contents,
-            carbon_intensity=self.current_carbon_intensity,
-            done=done,
-            reward=reward.total_reward,
-            reward_details=reward,
-            kb_available=query.kb_available,
-            metadata={
-                "task_id": self.current_task.task_id,
-                "difficulty": self.current_task.difficulty,
-                "state": self._state.public_payload(),
-            },
-        )
+    query = self.current_task.queries[-1] if done else self.current_query
+    
+    # compute normalized score only at episode end
+    final_score = 0.0
+    if done:
+        max_possible = float(len(self.current_task.queries))
+        final_score = min(self._state.total_score / max_possible, 1.0) if max_possible > 0 else 0.0
+    
+    return RLObservation(
+        query=query.text,
+        cache_contents=self.cache_contents,
+        carbon_intensity=self.current_carbon_intensity,
+        done=done,
+        reward=reward.total_reward,
+        reward_details=reward,
+        kb_available=query.kb_available,
+        score=reward.score if done else 0.0,   # ← ADD THIS
+        metadata={
+            "task_id": self.current_task.task_id,
+            "difficulty": self.current_task.difficulty,
+            "state": self._state.public_payload(),
+        },
+    )
 
     def _empty_reward(self, trace: list[str]) -> RLReward:
         return RLReward(
