@@ -8,7 +8,6 @@ from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import RLAction, RLObservation, Strategy, ModelChoice
 from server.tasks import TASKS
 
-# 1. Create native OpenEnv app
 app = create_app(
     EcoLLMInferenceRoutingEnvironment,
     RLAction,
@@ -17,7 +16,6 @@ app = create_app(
     max_concurrent_envs=4,
 )
 
-# 2. Grading Metadata - UPDATED BOUNDS
 _GRADER_BOUNDS = {
     "task_1": {"worst": 0.0, "best": 1.0},
     "task_2": {"worst": 0.5, "best": 2.5},
@@ -33,7 +31,6 @@ class GraderRequest(BaseModel):
     task_id: str
     actions: List[GraderAction]
 
-# 3. Add required extra endpoints to the OpenEnv app
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -47,15 +44,9 @@ def list_tasks():
             {"id": "task_3", "name": "Stateful Carbon-Aware Routing", "difficulty": "hard"},
         ]
     }
-@app.post("/reset")
-def reset(body: dict = {}):
-    task_id = body.get("task_id", "task_1")
-    obs = env.reset(task_id=task_id)
-    return obs
-    
+
 @app.post("/grader")
 def grade_episode(request: GraderRequest):
-    # Validate task_id
     if request.task_id not in TASKS:
         raise HTTPException(status_code=400, detail=f"Invalid task_id: {request.task_id}")
     
@@ -64,12 +55,12 @@ def grade_episode(request: GraderRequest):
     total_reward = 0.0
     
     for a in request.actions:
-        if obs.done: 
+        if obs.done:
             break
         try:
             action = RLAction(
-                strategy=Strategy(a.strategy), 
-                model_choice=ModelChoice(a.model_choice), 
+                strategy=Strategy(a.strategy),
+                model_choice=ModelChoice(a.model_choice),
                 exit_flag=a.exit_flag
             )
         except (ValueError, KeyError) as e:
@@ -80,18 +71,11 @@ def grade_episode(request: GraderRequest):
     
     bounds = _GRADER_BOUNDS[request.task_id]
     score = (total_reward - bounds["worst"]) / (bounds["best"] - bounds["worst"])
-    
-    # Normalize to (0.0, 1.0) - NO CLAMPING to 0.01-0.99
     score = max(0.0, min(1.0, score))
     
-    return {
-        "task_id": request.task_id, 
-        "score": score,
-        "reward": total_reward
-    }
+    return {"task_id": request.task_id, "score": score, "reward": total_reward}
 
 def main(host: str = "0.0.0.0", port: int = 7860) -> None:
-    """Run the development server."""
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 if __name__ == "__main__":
