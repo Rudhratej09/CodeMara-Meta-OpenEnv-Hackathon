@@ -329,7 +329,7 @@ async def run_episode(client: OpenAI) -> None:
         except Exception as exc:
             print(f"[DEBUG] env.close() error: {exc}", flush=True)
 
-        log_end(success=success, steps=steps_taken, rewards=rewards)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 def main() -> None:
