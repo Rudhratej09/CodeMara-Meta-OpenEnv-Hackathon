@@ -43,8 +43,8 @@ def list_tasks():
     return {
         "tasks": [
             {"id": "task_1", "name": "Single Query Routing", "difficulty": "easy"},
-            {"id": "task_2", "Multi-Query Episode", "difficulty": "medium"},
-            {"id": "task_3", "Stateful Carbon-Aware Routing", "difficulty": "hard"},
+            {"id": "task_2", "name": "Multi-Query Episode", "difficulty": "medium"},
+            {"id": "task_3", "name": "Stateful Carbon-Aware Routing", "difficulty": "hard"},
         ]
     }
 @app.post("/reset")
