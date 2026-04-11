@@ -57,5 +57,11 @@ def grade_episode(request: GraderRequest):
     score = (total_reward - bounds["worst"]) / (bounds["best"] - bounds["worst"])
     return {"task_id": request.task_id, "score": max(0.01, min(0.99, score)), "reward": total_reward}
 
+def main(host: str = "0.0.0.0", port: int = 7860) -> None:
+    """Run the development server."""
+    import uvicorn
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    main()
