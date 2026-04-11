@@ -45,7 +45,7 @@ class RLObservation(Observation):
     reward: float = 0.0
     done: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
-
+    score: float = 0.0
 class RLState(State):
     episode_id: str = ""
     step_count: int = 0
