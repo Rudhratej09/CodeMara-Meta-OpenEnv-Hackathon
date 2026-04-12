@@ -1,6 +1,6 @@
 ---
 title: Eco-LLM Inference Routing Environment
-emoji: ":seedling:"
+emoji: "🌱"
 colorFrom: green
 colorTo: blue
 sdk: docker
