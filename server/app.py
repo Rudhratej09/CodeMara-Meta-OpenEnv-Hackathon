@@ -9,8 +9,8 @@ import uvicorn
 
 from graders import GRADERS, grade_task_1
 from server.env import EcoLLMInferenceRoutingEnvironment
-from server.models import RLAction, RLObservation, RLState
-from tasks import TASKS
+from server.models import ModelChoice, RLAction, RLObservation, RLState, Strategy
+from tasks import TASK_REGISTRY
 
 
 environment = EcoLLMInferenceRoutingEnvironment()
@@ -55,6 +55,26 @@ _TASK_META = [
     },
 ]
 
+_ACTION_SPACE = {
+    "strategy": [strategy.value for strategy in Strategy],
+    "model_choice": [model.value for model in ModelChoice],
+    "exit_flag": "boolean",
+}
+
+_ENDPOINTS = {
+    "reset": {"method": "POST", "path": "/reset"},
+    "step": {"method": "POST", "path": "/step"},
+    "state": {"method": "GET", "path": "/state"},
+    "tasks": {"method": "GET", "path": "/tasks"},
+    "tasks_meta": {"method": "GET", "path": "/tasks/meta"},
+    "metadata": {"method": "GET", "path": "/metadata"},
+    "schema": {"method": "GET", "path": "/schema"},
+    "grader": {"method": "POST", "path": "/grader"},
+    "grade": {"method": "POST", "path": "/grade"},
+    "grader_replay": {"method": "POST", "path": "/grader/replay"},
+    "docs": {"method": "GET", "path": "/docs"},
+}
+
 
 class ResetRequest(BaseModel):
     task_id: str | None = None
@@ -84,7 +104,13 @@ class ReplayRequest(BaseModel):
 
 @app.get("/")
 def root() -> dict[str, Any]:
-    return {"status": "ok", "service": "eco_llm_inference_routing"}
+    return {
+        "status": "ok",
+        "service": "eco_llm_inference_routing",
+        "docs": "/docs",
+        "metadata": "/metadata",
+        "tasks": "/tasks",
+    }
 
 
 @app.get("/health")
@@ -97,6 +123,18 @@ def metadata() -> dict[str, Any]:
     return {
         "name": "eco_llm_inference_routing",
         "description": "Carbon-aware RL environment for multi-objective LLM query routing",
+        "version": "1.0.0",
+        "domain": "llm systems optimization",
+        "deterministic": True,
+        "observation_highlights": [
+            "query text",
+            "carbon intensity",
+            "cache contents",
+            "knowledge-base availability",
+            "structured reward breakdown",
+        ],
+        "action_space": _ACTION_SPACE,
+        "endpoints": _ENDPOINTS,
         "tasks": _TASK_META,
         "reward_range": [0.0, 1.0],
     }
@@ -113,12 +151,16 @@ def schema() -> dict[str, Any]:
 
 @app.get("/tasks")
 def list_tasks() -> list[str]:
-    return list(TASKS.keys())
+    return list(TASK_REGISTRY.keys())
 
 
 @app.get("/tasks/meta")
 def list_tasks_meta() -> dict[str, Any]:
-    return {"tasks": _TASK_META, "count": len(_TASK_META)}
+    return {
+        "tasks": _TASK_META,
+        "count": len(_TASK_META),
+        "available_task_ids": [task["id"] for task in _TASK_META],
+    }
 
 
 @app.get("/tasks/{task_id}")
@@ -200,17 +242,27 @@ def grade_endpoint(request: GradeRequest) -> dict[str, Any]:
 
 @app.post("/grader/replay")
 def grader_replay(request: ReplayRequest) -> dict[str, Any]:
-    if request.task_id not in TASKS:
+    if request.task_id not in TASK_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Invalid task_id: {request.task_id}")
 
     env = EcoLLMInferenceRoutingEnvironment()
     obs = env.reset(task_id=request.task_id)
     rewards: list[float] = []
 
-    for _ in request.actions:
+    for action in request.actions:
         if obs.done:
             break
-        break
+        try:
+            obs = env.step(
+                RLAction(
+                    strategy=Strategy(action.strategy),
+                    model_choice=ModelChoice(action.model_choice),
+                    exit_flag=action.exit_flag,
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid replay action: {exc}") from exc
+        rewards.append(float(obs.reward))
 
     total_reward = sum(rewards)
     fn = GRADERS.get(request.task_id, grade_task_1)

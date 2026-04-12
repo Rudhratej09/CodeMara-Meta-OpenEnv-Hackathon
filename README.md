@@ -1,324 +1,214 @@
 ---
 title: Eco-LLM Inference Routing Environment
-emoji: "🌱"
+emoji: ":seedling:"
 colorFrom: green
 colorTo: blue
 sdk: docker
 app_port: 7860
 pinned: false
+tags:
+  - openenv
+  - reinforcement-learning
+  - llm-routing
+  - carbon-aware
+  - systems
 ---
+
 # Eco-LLM Inference Routing Environment
 
-> An [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible reinforcement learning environment for carbon-aware, multi-objective LLM query routing.
-> link to hugging face space of the environment->https://huggingface.co/spaces/rudhratej09/Eco-LLM-Carbon-Aware-LLM-Inference-Routing
+Eco-LLM Inference Routing is an OpenEnv-compatible reinforcement learning environment for carbon-aware LLM serving. The agent must decide how to route each query across model tiers and routing strategies while balancing answer quality, latency, energy use, and grid carbon intensity.
 
+Public Space:
+https://huggingface.co/spaces/rudhratej09/Eco-LLM-Carbon-Aware-LLM-Inference-Routing
 
+Live endpoints:
+- `/tasks`: https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/tasks
+- `/metadata`: https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/metadata
+- `/docs`: https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/docs
 
----
+## Why This Environment
 
-## Overview
+Modern LLM systems do not have a single objective. A router often has to decide whether a request should go to a small model, a larger model, a cache, a retrieval layer, or be delayed until carbon intensity improves. This environment turns that operational tradeoff into a deterministic RL benchmark with structured rewards and graded tasks.
 
-This environment simulates the problem of routing incoming LLM queries to the most appropriate model tier (small, medium, or large) while jointly optimising for **accuracy**, **energy efficiency**, **latency**, and **carbon footprint**.
+The design stays close to a real serving stack:
+- multiple model tiers with different energy and latency costs
+- a cache that can eliminate repeat inference cost
+- a knowledge-base path for FAQ-style requests
+- cascade and early-exit strategies for adaptive compute
+- a carbon schedule that makes timing matter
 
-At each step, an agent observes a query, the current carbon intensity of the grid, and the contents of a response cache. It then selects a routing *strategy* and a target *model*, receiving a structured reward signal that reflects all four objectives.
+## Tasks
 
-The environment is fully deterministic — given the same actions, every episode plays out identically — making it suitable for reproducible evaluation and grading.
+Three tasks are included, each with a deterministic grader returning a score in `[0.0, 1.0]`.
 
----
+- `task_1`: single-query routing with a simple accuracy-versus-cost tradeoff
+- `task_2`: three-query episode with an explicit penalty for overusing the large model
+- `task_3`: five-query stateful episode with repeated queries, cache reuse, knowledge-base lookups, cascading, and carbon-aware waiting
 
-## Environment Design
+Task definitions live in [server/tasks.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/tasks.py).
 
-### Action Space
+## Action Space
 
-Each action is an `RLAction` with three fields:
+Defined in [server/models.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/models.py).
 
-| Field | Type | Description |
-|---|---|---|
-| `strategy` | `Strategy` | How to handle the query (see below) |
-| `model_choice` | `ModelChoice` | Target model: `SMALL`, `MEDIUM`, or `LARGE` |
-| `exit_flag` | `bool` | Whether to terminate a cascade early on first correct answer |
+Each action has:
+- `strategy`: `NONE`, `USE_CACHE`, `DO_CASCADE`, `EARLY_EXIT`, `WAIT`, or `CALL_KB`
+- `model_choice`: `SMALL`, `MEDIUM`, or `LARGE`
+- `exit_flag`: whether a cascade should stop early after the first correct answer
 
-**Available strategies:**
+## Observation Space
 
-| Strategy | Behaviour |
-|---|---|
-| `NONE` | Direct inference with the chosen model |
-| `USE_CACHE` | Serve from cache if this query was answered correctly before |
-| `DO_CASCADE` | Try models from smallest up to the chosen model, stopping on `exit_flag` |
-| `EARLY_EXIT` | Infer with chosen model; bonus reward if correct and stops early |
-| `CALL_KB` | Look up a knowledge base; only succeeds if `kb_available` for the query |
-| `WAIT` | Skip this step to wait for lower carbon intensity |
+Each observation includes:
+- current query text
+- current grid carbon intensity
+- cache contents
+- whether a knowledge base is available
+- scalar reward
+- detailed reward breakdown
+- done flag
+- task and state metadata
 
-### Observation Space
+## Reward Design
 
-Each `RLObservation` contains:
+The environment is dense-reward, not purely terminal.
 
-| Field | Description |
-|---|---|
-| `query` | The current query text |
-| `carbon_intensity` | Grid carbon intensity this step (0.0 = clean, 1.0 = dirty) |
-| `cache_contents` | List of queries already answered correctly (available for free re-use) |
-| `kb_available`     | Whether a knowledge base is available for the current query  |
-| `reward_details` | Full structured `RLReward` breakdown |
-| `done` | Whether the episode has ended |
+Per step:
+- `score = 1.0` when the chosen strategy reaches a model capable of solving the query, else `0.0`
+- `carbon_penalty = carbon_intensity * energy_cost`, capped at `0.8`
+- `latency_penalty = 0.1 * latency_cost`
+- cache hits add `+0.5`
+- successful early exit adds `+0.1`
+- some tasks add an explicit large-model penalty
 
-### Reward Function
-
-```
-reward = score − carbon_penalty − latency_penalty + bonuses
-```
-
-| Component | Formula | Notes |
-|---|---|---|
-| `score` | `1.0` if correct, else `0.0` | Primary accuracy signal |
-| `carbon_penalty` | `carbon_intensity × energy_cost` | Penalises dirty-grid inference |
-| `latency_penalty` | `0.1 × latency_cost` | Soft latency pressure |
-| `bonuses` | Cache hit: `+0.5`, Early exit: `+0.1` | Efficiency rewards |
-| Task penalty | Configurable per task (e.g. `−0.2` for LARGE on task 2) | Discourages over-provisioning |
-
-**Energy and latency costs per model:**
+Model costs:
 
 | Model | Energy cost | Latency cost |
-|---|---|---|
+|---|---:|---:|
 | `SMALL` | 0.1 | 1.0 |
 | `MEDIUM` | 0.3 | 2.0 |
 | `LARGE` | 0.6 | 5.0 |
 
-### Tasks
+This makes the benchmark about policy quality, not just raw correctness.
 
-Three tasks of increasing difficulty are included:
+## Core Files
 
-| Task | Difficulty | Queries | Description |
-|---|---|---|---|
-| `task_1` | Easy | 1 | Single-query routing; accuracy emphasis |
-| `task_2` | Medium | 3 | Multi-query episode; LARGE model penalised |
-| `task_3` | Hard | 5 | Stateful episode with repeated queries, caching, cascading, KB lookups, and carbon-aware waiting |
+- [openenv.yaml](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/openenv.yaml): OpenEnv manifest
+- [server/app.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/app.py): FastAPI app and HTTP endpoints
+- [server/env.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/env.py): environment logic
+- [server/models.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/models.py): typed action, observation, and state models
+- [server/tasks.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/tasks.py): deterministic task catalog and cost tables
+- [server/rubrics.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/server/rubrics.py): rubric-style graders
+- [graders.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/graders.py): top-level grader compatibility shims
+- [inference.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/inference.py): root-level baseline runner
+- [baseline.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/baseline.py): random, heuristic, and LLM baselines
 
----
+## Local Run
 
-## Project Structure
-
-```
-eco_llm_inference_routing/
-├── openenv.yaml          # OpenEnv spec manifest
-├── pyproject.toml        # Python package and dependency config
-├── uv.lock               # Locked dependency tree
-├── baseline.py           # Baseline agents and CLI runner
-├── Dockerfile            # Multi-stage container build from openenv-base
-└── server/
-    ├── __init__.py       # Python package marker
-    ├── app.py            # FastAPI app (OpenEnv HTTP server)
-    ├── env.py            # EcoLLMInferenceRoutingEnvironment (core logic)
-    ├── models.py         # RLAction, RLObservation, RLState, RLReward
-    └── tasks.py          # Task definitions, query specs, reward constants
-```
-
----
-
-## Setup
-
-### Prerequisites
-
-- Python 3.10+
-- [`uv`](https://github.com/astral-sh/uv) (recommended) or `pip`
-- Docker (for containerised deployment)
-
-### Install dependencies
+Install dependencies:
 
 ```bash
-# With uv (recommended)
 uv sync
-# With pip
-pip install -e .
 ```
 
-### Run the server locally
+Start the server:
 
 ```bash
-python -m server.app
-# or
-uvicorn server.app:app --host 0.0.0.0 --port 8000
+uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
-The server exposes OpenEnv-standard endpoints at `http://localhost:8000`:
-- `POST /reset` — start a new episode
-- `POST /step` — take an action
-- `GET /state` — inspect current state
-
----
-
-## Running the Inference Script
-
-The submission-ready inference script is `inference.py` in the repo root. It uses the OpenAI-compatible client and emits mandatory `[START]`/`[STEP]`/`[END]` logs.
+Quick checks:
 
 ```bash
-# Required environment variables
-export HF_TOKEN=your_hf_token
+curl http://127.0.0.1:7860/health
+curl http://127.0.0.1:7860/metadata
+curl http://127.0.0.1:7860/tasks
+```
+
+## Baseline Inference
+
+The required root-level baseline script is [inference.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/inference.py).
+
+Example:
+
+```bash
+export HF_TOKEN=your_token
 export API_BASE_URL=https://router.huggingface.co/v1
 export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-export ECO_LLM_TASK=task_1   # task_1 | task_2 | task_3
+export ECO_LLM_TASK=task_3
 python inference.py
 ```
 
-**Example output:**
+The script emits OpenEnv-style logs:
+
+```text
+[START] task=task_3 env=eco_llm_inference_routing model=Qwen/Qwen2.5-72B-Instruct
+[STEP] step=1 action=strategy=CALL_KB,model=SMALL,exit=false reward=1.30 done=false error=null
+[END] success=true steps=5 score=0.72 rewards=1.30,0.48,1.50,0.20,1.90
 ```
-[START] task=task_1 env=eco_llm_inference_routing model=Qwen/Qwen2.5-72B-Instruct
-[STEP] step=1 action=strategy=NONE,model=MEDIUM,exit=false reward=0.68 done=true error=null
-[END] success=true steps=1 score=0.45 rewards=0.68
-```
 
----
+## Baselines
 
-## Running Baselines
+The repository includes three reference agents:
+- random policy
+- heuristic router
+- LLM-based router
 
-The `baseline.py` script provides three independent baseline agents for evaluation:
-
-### Quick Start
+Run comparison:
 
 ```bash
-# Evaluate single agent
-python baseline.py evaluate --agent random --task task_3 --episodes 10
-python baseline.py evaluate --agent heuristic --task task_3 --episodes 10
-python baseline.py evaluate --agent llm --task task_3 --episodes 10 \
-  --api-key $HF_TOKEN --model-name Qwen/Qwen2.5-72B-Instruct
-# Compare all agents on same task
 python baseline.py compare --task task_3 --episodes 20
 ```
 
-### Agent Types
+These baselines are useful because they show the environment is not just a one-step classification toy. Cache-aware and carbon-aware decisions materially change returns on the harder task.
 
-#### 1. Random Agent (`--agent random`)
+## API Surface
 
-- Policy: Uniformly random strategy + model selection
-- Purpose: Lower-bound baseline (no intelligence)
-- Use Case: Verify environment is non-trivial
-- Expected Performance: ~0.8-1.0 reward (`task_3`)
+Main endpoints:
+- `GET /`
+- `GET /health`
+- `GET /metadata`
+- `GET /schema`
+- `GET /tasks`
+- `GET /tasks/meta`
+- `GET /tasks/{task_id}`
+- `POST /reset`
+- `POST /step`
+- `POST /grader`
+- `POST /grade`
+- `POST /grader/replay`
+- `GET /docs`
 
-#### 2. Heuristic Agent (`--agent heuristic`)
+## OpenEnv Compatibility
 
-- Policy: Rule-based routing
-- Check cache first (free re-use)
-- Try KB if available
-- Wait if carbon > 0.7
-- Cascade on hard queries
-- Purpose: Mid-range baseline (no LLM calls)
-- Use Case: Demonstrate strategic routing matters
-- Expected Performance: ~2.0-2.3 reward (`task_3`)
+This submission includes the expected OpenEnv pieces:
+- `openenv.yaml`
+- root-level `inference.py`
+- root-level task and grader compatibility exports
+- typed action, observation, and state models
+- Docker runtime for Hugging Face Spaces deployment
 
-#### 3. LLM Agent (`--agent llm`)
+## Docker
 
-- Policy: Intelligent routing via Claude/GPT/Qwen
-- Purpose: Upper-bound baseline (intelligent agent)
-- Use Case: Show LLM can optimize trade-offs
-- Requirements: Valid `HF_TOKEN` or `OPENAI_API_KEY`
-- Expected Performance: ~2.2-2.5 reward (`task_3`)
-
-### Baseline Comparison
-
-```bash
-$ python baseline.py compare --task task_3 --episodes 20
-======================================================================
-  Eco-LLM Baseline: COMPARISON
-  Task: task_3 | Episodes: 20
-======================================================================
-Agent            Mean       Std Dev    Min        Max
-----------------------------------------------------------------------
-Random           0.8450     0.6200     0.0000     2.1000
-Heuristic        2.1400     0.1800     1.9000     2.5000
-LLM              2.3100     0.2500     1.8000     2.8000
-Relative Performance:
-  Heuristic > Random: 2.53x
-  LLM > Heuristic: 1.08x
-======================================================================
-```
-
-### Running on Different Tasks
+Build:
 
 ```bash
-# Easy task (1 query)
-python baseline.py compare --task task_1 --episodes 50
-# Medium task (3 queries)
-python baseline.py compare --task task_2 --episodes 30
-# Hard task (5 queries, stateful)
-python baseline.py compare --task task_3 --episodes 20
-```
-
-### API Key Configuration
-
-The LLM agent requires an API key. Set one of:
-
-```bash
-# Hugging Face (recommended for Qwen, Llama)
-export HF_TOKEN='hf_xxxxxxxxxxxxx'
-# OpenAI (for GPT models)
-export OPENAI_API_KEY='sk-xxxxxxxxxxxxx'
-```
-
-Specify model:
-
-```bash
-python baseline.py evaluate --agent llm --task task_3 \
-  --model-name Qwen/Qwen2.5-72B-Instruct
-```
-
-### Expected Results Summary
-
-| Task | Random | Heuristic | LLM |
-|---|---:|---:|---:|
-| `task_1` (Easy) | 0.50 | 1.50 | 1.45 |
-| `task_2` (Medium) | 1.20 | 2.00 | 2.15 |
-| `task_3` (Hard) | 0.85 | 2.14 | 2.31 |
-
-Key insights:
-
-- Random agent struggles because it has no strategy.
-- Heuristic agent uses cache, KB, wait, and cascade effectively.
-- LLM agent adds a modest improvement through better trade-off decisions.
-- The environment demonstrates multi-objective routing trade-offs clearly.
-
----
-
-## Docker Deployment
-
-Build and run the environment as a container with the root `Dockerfile`:
-
-```bash
-# Build
 docker build -t eco-llm-routing .
-# Run
+```
+
+Run:
+
+```bash
 docker run -p 7860:7860 eco-llm-routing
 ```
 
-The container serves the OpenEnv HTTP interface at port 7860 and includes a health check at `GET /health`.
+## Validation Notes
 
-To deploy to Hugging Face Spaces:
-
-1. Create a new Docker Space on Hugging Face.
-2. Push this repository to that Space.
-3. Hugging Face will read the `README.md` front matter and start the container on port `7860`.
-
-To deploy via the OpenEnv CLI:
-
-```bash
-pip install openenv-core
-openenv push --repo-id your-org/eco-llm-routing
-```
-
----
-
-## OpenEnv Compliance
-
-This environment conforms to the [OpenEnv spec](https://github.com/meta-pytorch/OpenEnv):
-
-- `openenv.yaml` with `spec_version: 1`, `type: space`, `runtime: fastapi`
-- `EcoLLMInferenceRoutingEnvironment` extends `openenv.core.env_server.interfaces.Environment`
-- Typed `Action`, `Observation`, and `State` via Pydantic models
-- Server bootstrapped with `create_app(...)` from `openenv.core.env_server.http_server`
-- Multi-stage Dockerfile based on `ghcr.io/meta-pytorch/openenv-base`
-
----
+The repository includes lightweight tests in [tests/test_agents.py](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/tests/test_agents.py). For a submission review, the most important checks are:
+- server boots cleanly
+- `/tasks`, `/metadata`, and `/docs` resolve
+- the grader returns normalized scores
+- the root-level inference script remains runnable
 
 ## License
 
-BSD-style license — see [LICENSE](./LICENSE) for full terms.  
-Copyright (c) Meta Platforms, Inc. and affiliates.
+BSD-style license. See [LICENSE](/C:/Users/Rudhratej/CodeMara-Meta-OpenEnv-Hackathon/LICENSE).
