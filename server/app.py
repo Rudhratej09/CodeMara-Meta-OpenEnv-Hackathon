@@ -63,6 +63,7 @@ _TASK_META = [
     {
         "id": "task_1",
         "grader": "rubrics:Task1Rubric",
+        "rubric": "rubrics:Task1Rubric",
         "name": "Single Query Routing",
         "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "difficulty": "easy",
@@ -70,6 +71,7 @@ _TASK_META = [
     {
         "id": "task_2",
         "grader": "rubrics:Task2Rubric",
+        "rubric": "rubrics:Task2Rubric",
         "name": "Multi-Query Episode",
         "description": "Route three queries; LARGE model penalised -0.2 per use. Balance accuracy vs efficiency.",
         "difficulty": "medium",
@@ -77,6 +79,7 @@ _TASK_META = [
     {
         "id": "task_3",
         "grader": "rubrics:Task3Rubric",
+        "rubric": "rubrics:Task3Rubric",
         "name": "Stateful Carbon-Aware Routing",
         "description": "5-query episode with caching, KB lookups, cascade, and carbon-aware waiting.",
         "difficulty": "hard",

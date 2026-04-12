@@ -21,6 +21,16 @@ except Exception:
                         return None
 
 
+class _RubricMeta(type(OpenEnvRubric)):
+    """Allow both RubricClass() and RubricClass(episode_data)."""
+
+    def __call__(cls, *args: Any, **kwargs: Any) -> Any:
+        if args and isinstance(args[0], dict) and len(args) == 1 and not kwargs:
+            instance = super().__call__()
+            return instance(args[0])
+        return super().__call__(*args, **kwargs)
+
+
 _MAX_REWARD_PER_QUERY: float = 1.5
 _MAX_REWARDS: dict[str, float] = {
     "task_1": 1.0 * _MAX_REWARD_PER_QUERY,
@@ -66,7 +76,7 @@ def _make_result(task_id: str, score: float, rewards: list[float]) -> dict[str, 
     }
 
 
-class BaseEpisodeRubric(OpenEnvRubric):
+class BaseEpisodeRubric(OpenEnvRubric, metaclass=_RubricMeta):
     task_id: str = "task_1"
 
     def __init__(self) -> None:
