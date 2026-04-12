@@ -54,4 +54,18 @@ TASKS = [
 
 TASK_IDS = [task["task_id"] for task in TASKS]
 
-__all__ = ["TASKS", "TASK_IDS", "TASK_REGISTRY", "get_task"]
+TASK_MAP = {task["task_id"]: task for task in TASKS}
+easy = TASK_MAP["task_1"]
+medium = TASK_MAP["task_2"]
+hard = TASK_MAP["task_3"]
+
+__all__ = [
+    "TASKS",
+    "TASK_IDS",
+    "TASK_MAP",
+    "TASK_REGISTRY",
+    "easy",
+    "medium",
+    "hard",
+    "get_task",
+]

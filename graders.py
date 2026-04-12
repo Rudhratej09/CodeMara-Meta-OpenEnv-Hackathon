@@ -56,6 +56,18 @@ def grade_task_3(state: dict[str, Any], reward: float) -> float:
     return grade_hard(state, reward)
 
 
+def grade_easy_task(state: dict[str, Any], reward: float) -> float:
+    return grade_task_1(state, reward)
+
+
+def grade_medium_task(state: dict[str, Any], reward: float) -> float:
+    return grade_task_2(state, reward)
+
+
+def grade_hard_task(state: dict[str, Any], reward: float) -> float:
+    return grade_task_3(state, reward)
+
+
 def EasyGrader(*args: Any, **kwargs: Any) -> float:
     return _grade("task_1", *args, **kwargs)
 
@@ -77,6 +89,9 @@ Task3Grader = HardGrader
 
 
 GRADERS = {
+    "easy": grade_task_1,
+    "medium": grade_task_2,
+    "hard": grade_task_3,
     "task_1": grade_task_1,
     "task_2": grade_task_2,
     "task_3": grade_task_3,
@@ -99,5 +114,8 @@ __all__ = [
     "grade_task_1",
     "grade_task_2",
     "grade_task_3",
+    "grade_easy_task",
+    "grade_medium_task",
+    "grade_hard_task",
     "GRADERS",
 ]

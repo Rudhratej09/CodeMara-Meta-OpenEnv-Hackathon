@@ -37,7 +37,7 @@ _MAX_REWARDS: dict[str, float] = {
     "task_2": 3.0 * _MAX_REWARD_PER_QUERY,
     "task_3": 5.0 * _MAX_REWARD_PER_QUERY,
 }
-_SCORE_MIN: float = 0.01
+_SCORE_MIN: float = 0.1
 _SCORE_MAX: float = 0.99
 
 
