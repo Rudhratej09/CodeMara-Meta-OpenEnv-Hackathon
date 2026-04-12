@@ -164,7 +164,7 @@ python inference.py
 ```
 [START] task=task_1 env=eco_llm_inference_routing model=Qwen/Qwen2.5-72B-Instruct
 [STEP] step=1 action=strategy=NONE,model=MEDIUM,exit=false reward=0.68 done=true error=null
-[END] success=true steps=1 rewards=0.68
+[END] success=true steps=1 score=0.45 rewards=0.68
 ```
 
 ---

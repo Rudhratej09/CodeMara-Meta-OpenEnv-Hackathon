@@ -227,7 +227,7 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
             reward=reward.total_reward,
             reward_details=reward,
             kb_available=query.kb_available,
-            score=float(self._state.query_index) / float(len(self.current_task.queries)) if done else 0.0,
+            score=0.0,
             metadata={
                 "task_id": self.current_task.task_id,
                 "difficulty": self.current_task.difficulty,
