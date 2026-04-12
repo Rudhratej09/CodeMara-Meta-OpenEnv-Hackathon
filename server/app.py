@@ -30,10 +30,11 @@ from typing import List
 
 from openenv.core.env_server.http_server import create_app
 
+from graders import EasyGrader, GRADERS, HardGrader, MediumGrader
 from server.env import EcoLLMInferenceRoutingEnvironment
-from server.rubrics import Task1Rubric, Task2Rubric, Task3Rubric, get_grader
+from server.rubrics import get_grader
 from server.models import RLAction, RLObservation, Strategy, ModelChoice
-from server.tasks import TASKS
+from tasks import TASKS
 
 # create_app() registers POST /reset, POST /step, GET /state automatically.
 app = create_app(
@@ -61,26 +62,29 @@ def health() -> dict:
 
 _TASK_META = [
     {
-        "id": "task_1",
-        "grader": "rubrics:Task1Rubric",
-        "rubric": "rubrics:Task1Rubric",
+        "id": "easy",
+        "grader": "graders:EasyGrader",
+        "rubric": "graders:EasyGrader",
         "name": "Single Query Routing",
+        "title": "Single Query Routing",
         "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "difficulty": "easy",
     },
     {
-        "id": "task_2",
-        "grader": "rubrics:Task2Rubric",
-        "rubric": "rubrics:Task2Rubric",
+        "id": "medium",
+        "grader": "graders:MediumGrader",
+        "rubric": "graders:MediumGrader",
         "name": "Multi-Query Episode",
+        "title": "Multi-Query Episode",
         "description": "Route three queries; LARGE model penalised -0.2 per use. Balance accuracy vs efficiency.",
         "difficulty": "medium",
     },
     {
-        "id": "task_3",
-        "grader": "rubrics:Task3Rubric",
-        "rubric": "rubrics:Task3Rubric",
+        "id": "hard",
+        "grader": "graders:HardGrader",
+        "rubric": "graders:HardGrader",
         "name": "Stateful Carbon-Aware Routing",
+        "title": "Stateful Carbon-Aware Routing",
         "description": "5-query episode with caching, KB lookups, cascade, and carbon-aware waiting.",
         "difficulty": "hard",
     },
@@ -88,9 +92,14 @@ _TASK_META = [
 
 
 @app.get("/tasks")
-def list_tasks() -> dict:
-    """Enumerate all tasks (Phase 2 validator calls this)."""
-    return {"tasks": _TASK_META, "count": len(_TASK_META)}
+def list_tasks() -> list[str]:
+    """Enumerate task ids (Phase 2 validator calls this)."""
+    return list(TASKS.keys())
+
+
+@app.get("/tasks/meta")
+def list_tasks_meta() -> dict:
+    return {"tasks": _TASK_META, "count": len(_TASK_META), "graders": list(GRADERS.keys())}
 
 
 @app.get("/tasks/{task_id}")
@@ -120,7 +129,7 @@ def grade(request: GradeRequest) -> dict:
 
     Body: task_id, rewards (per-step list), steps, episode_id (optional)
     """
-    valid = {"task_1", "task_2", "task_3"}
+    valid = set(TASKS.keys())
     if request.task_id not in valid:
         raise HTTPException(
             status_code=400,
@@ -258,7 +267,7 @@ try:
             return f"Error: {exc}", "", float(st.get("total_reward", 0.0)), st
 
     with gr.Blocks(title="Eco-LLM Routing") as demo:
-        ds = gr.State({"task_id": "task_1", "env_state": None, "history": [],
+        ds = gr.State({"task_id": "easy", "env_state": None, "history": [],
                        "rewards": [], "total_reward": 0.0, "active": False})
         gr.Markdown(
             "# 🌱 Eco-LLM Inference Routing\n"
@@ -266,7 +275,7 @@ try:
             "API: `POST /reset` · `POST /step` · `GET /tasks` · `POST /grade`"
         )
         with gr.Row():
-            task_dd = gr.Dropdown(["task_1", "task_2", "task_3"], value="task_1", label="Task")
+            task_dd = gr.Dropdown(["easy", "medium", "hard"], value="easy", label="Task")
             rst = gr.Button("🔄 Reset", variant="primary")
         obs_box = gr.Textbox(label="State", lines=6, interactive=False)
         gr.Markdown("### Action")

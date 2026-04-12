@@ -7,7 +7,7 @@ Environment variables:
     HF_TOKEN       Your HuggingFace API key  (REQUIRED, no default)
     API_BASE_URL   LLM endpoint              (default: https://router.huggingface.co/v1)
     MODEL_NAME     Model identifier          (default: Qwen/Qwen2.5-72B-Instruct)
-    ECO_LLM_TASK   Task to run              (default: task_1 | task_2 | task_3 | all)
+    ECO_LLM_TASK   Task to run              (default: easy | medium | hard | all)
 
 Stdout format (mandatory):
     [START] task=<task> env=eco_llm_inference_routing model=<model>
@@ -42,7 +42,7 @@ HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
 API_KEY: Optional[str] = HF_TOKEN or os.getenv("OPENAI_API_KEY")
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str  = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-TASK_ID: str     = os.getenv("ECO_LLM_TASK", "task_1")
+TASK_ID: str     = os.getenv("ECO_LLM_TASK", "easy")
 BENCHMARK: str   = "eco_llm_inference_routing"
 
 MAX_STEPS: int = 50
@@ -52,7 +52,7 @@ MAX_TOKENS: int = 80
 
 # Max reward per query step = score(1.0) + cache_bonus(0.5) = 1.5
 _MAX_REWARD_PER_STEP: float = 1.5
-TASK_QUERY_COUNTS: dict[str, int] = {"task_1": 1, "task_2": 3, "task_3": 5}
+TASK_QUERY_COUNTS: dict[str, int] = {"easy": 1, "medium": 3, "hard": 5}
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are an LLM inference router for the Eco-LLM environment.
@@ -342,8 +342,8 @@ def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     # ECO_LLM_TASK=all runs all three tasks sequentially
-    tasks = ["task_1", "task_2", "task_3"] if TASK_ID == "all" \
-            else [TASK_ID if TASK_ID in TASK_QUERY_COUNTS else "task_1"]
+    tasks = ["easy", "medium", "hard"] if TASK_ID == "all" \
+            else [TASK_ID if TASK_ID in TASK_QUERY_COUNTS else "easy"]
 
     for t in tasks:
         asyncio.run(run_episode(client, t))

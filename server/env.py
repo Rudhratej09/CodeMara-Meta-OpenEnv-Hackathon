@@ -9,6 +9,8 @@ from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import EnvironmentMetadata
 
 from server.models import ModelChoice, RLAction, RLObservation, RLReward, RLState, Strategy
+from graders import GRADERS
+from tasks import TASKS
 from server.tasks import (
     CARBON_SCHEDULE,
     ENERGY_COSTS,
@@ -33,7 +35,9 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
 
     def __init__(self) -> None:
         super().__init__()
-        self.current_task: TaskSpec = get_task("task_1")
+        self.tasks = TASKS
+        self.graders = GRADERS
+        self.current_task: TaskSpec = get_task("easy")
         self._state = RLState(
             episode_id=str(uuid4()),
             step_count=0,
@@ -50,10 +54,12 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
         self,
         seed: Optional[int] = None,
         episode_id: Optional[str] = None,
-        task_id: str = "task_1",
+        task_id: Optional[str] = None,
         **kwargs: object,
     ) -> RLObservation:
         del seed, kwargs
+        if task_id is None:
+            task_id = "easy"
         self.current_task = get_task(task_id)
         self._state = RLState(
             episode_id=episode_id or str(uuid4()),

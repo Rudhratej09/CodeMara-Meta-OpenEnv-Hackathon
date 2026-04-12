@@ -47,8 +47,8 @@ class TaskSpec:
 
 
 TASKS: dict[str, TaskSpec] = {
-    "task_1": TaskSpec(
-        task_id="task_1",
+    "easy": TaskSpec(
+        task_id="easy",
         difficulty="easy",
         queries=(
             QuerySpec(
@@ -59,8 +59,8 @@ TASKS: dict[str, TaskSpec] = {
         ),
         description="Single-query routing with accuracy-only emphasis.",
     ),
-    "task_2": TaskSpec(
-        task_id="task_2",
+    "medium": TaskSpec(
+        task_id="medium",
         difficulty="medium",
         queries=(
             QuerySpec(
@@ -82,8 +82,8 @@ TASKS: dict[str, TaskSpec] = {
         large_model_penalty=-0.2,
         description="Three-query episode with an extra penalty for using the LARGE model.",
     ),
-    "task_3": TaskSpec(
-        task_id="task_3",
+    "hard": TaskSpec(
+        task_id="hard",
         difficulty="hard",
         queries=(
             QuerySpec(
@@ -121,4 +121,4 @@ TASKS: dict[str, TaskSpec] = {
 
 def get_task(task_id: str) -> TaskSpec:
     """Return a task by id, defaulting to the easy task for unknown ids."""
-    return TASKS.get(task_id, TASKS["task_1"])
+    return TASKS.get(task_id, TASKS["easy"])
