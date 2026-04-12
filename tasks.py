@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from graders import grade_task_1, grade_task_2, grade_task_3
 from server.tasks import TASKS as TASK_REGISTRY
 from server.tasks import get_task
 
@@ -15,8 +16,10 @@ TASKS = [
         "difficulty": "easy",
         "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "max_steps": 10,
-        "grader": "graders:grade_task_1",
-        "graders": ["graders:grade_task_1"],
+        "grader": grade_task_1,
+        "grader_path": "graders:grade_task_1",
+        "graders": [grade_task_1],
+        "grader_paths": ["graders:grade_task_1"],
         "reward_range": [0.0, 1.0],
     },
     {
@@ -27,8 +30,10 @@ TASKS = [
         "difficulty": "medium",
         "description": "Route 3 queries of varying complexity. LARGE model incurs -0.2 penalty per use.",
         "max_steps": 20,
-        "grader": "graders:grade_task_2",
-        "graders": ["graders:grade_task_2"],
+        "grader": grade_task_2,
+        "grader_path": "graders:grade_task_2",
+        "graders": [grade_task_2],
+        "grader_paths": ["graders:grade_task_2"],
         "reward_range": [0.0, 1.0],
     },
     {
@@ -39,8 +44,10 @@ TASKS = [
         "difficulty": "hard",
         "description": "5-query episode with caching, KB lookups, cascade strategies, and carbon-aware waiting.",
         "max_steps": 50,
-        "grader": "graders:grade_task_3",
-        "graders": ["graders:grade_task_3"],
+        "grader": grade_task_3,
+        "grader_path": "graders:grade_task_3",
+        "graders": [grade_task_3],
+        "grader_paths": ["graders:grade_task_3"],
         "reward_range": [0.0, 1.0],
     },
 ]
