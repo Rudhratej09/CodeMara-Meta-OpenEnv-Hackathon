@@ -6,19 +6,20 @@ Endpoints provided automatically by create_app():
     POST /step     take action
     GET  /state    current state
 
-Additional endpoints (Phase 2 validator requires):
+Additional endpoints:
     GET  /tasks    enumerate tasks with grader metadata
-    POST /grade    grade a completed episode → score in [0.0, 1.0]
+    POST /grade    grade a completed episode → score in [0.01, 0.99]
     GET  /health   liveness probe
 
-FIXES applied vs previous version
-───────────────────────────────────
-1. Removed duplicate @app.post("/reset") — create_app() already registers it;
-   duplicate caused route conflict / 500 on every POST /reset.
-2. Renamed /grader → /grade (validator calls /grade, 404 otherwise).
-3. Fixed grader bounds (task_1 max=1.5, task_2 max=4.5, task_3 max=7.5).
-4. Added Gradio demo UI at /ui (HF Space requirement).
-5. /reset no longer references undefined `env` variable.
+FIXES (Phase 2 deep validation)
+─────────────────────────────────
+1. Grader references are now CLASS-based (server.graders:Task1Grader) not
+   function-based. The validator instantiates Task1Grader() then calls it —
+   a plain function cannot be instantiated this way.
+2. All scores clamped to [0.01, 0.99] — Phase 2 strict inequality check
+   rejects exactly 0.0 or 1.0 with "Score Out of Range".
+3. /grade endpoint uses the same grader classes as openenv.yaml so
+   replay-based and reward-list-based grading are consistent.
 """
 from __future__ import annotations
 
@@ -27,15 +28,14 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import List
 
-# ── OpenEnv bootstrap ────────────────────────────────────────────────────────
-# create_app() registers POST /reset, POST /step, GET /state automatically.
-# DO NOT add another @app.post("/reset") — it creates a duplicate route.
 from openenv.core.env_server.http_server import create_app
 
 from server.env import EcoLLMInferenceRoutingEnvironment
+from server.graders import Task1Grader, Task2Grader, Task3Grader, get_grader
 from server.models import RLAction, RLObservation, Strategy, ModelChoice
 from server.tasks import TASKS
 
+# create_app() registers POST /reset, POST /step, GET /state automatically.
 app = create_app(
     EcoLLMInferenceRoutingEnvironment,
     RLAction,
@@ -44,56 +44,51 @@ app = create_app(
     max_concurrent_envs=4,
 )
 
+
 # ── Utility endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/")
 def root() -> dict:
     return {"status": "ok", "service": "eco_llm_inference_routing", "ui": "/ui"}
 
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "healthy"}
 
-# ── Phase 2: /tasks  ──────────────────────────────────────────────────────────
-# The validator calls GET /tasks to enumerate tasks before running graders.
+
+# ── GET /tasks ────────────────────────────────────────────────────────────────
 
 _TASK_META = [
     {
         "id": "task_1",
+        "grader": "server.graders:Task1Grader",
         "name": "Single Query Routing",
+        "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "difficulty": "easy",
-        "num_queries": 1,
-        "max_reward": 1.5,
-        "description": "Route a single query to the optimal model tier.",
-        "grader": "server.app:grade_episode",
-        "score_range": [0.0, 1.0],
     },
     {
         "id": "task_2",
+        "grader": "server.graders:Task2Grader",
         "name": "Multi-Query Episode",
+        "description": "Route three queries; LARGE model penalised -0.2 per use. Balance accuracy vs efficiency.",
         "difficulty": "medium",
-        "num_queries": 3,
-        "max_reward": 4.5,
-        "description": "Route 3 queries; LARGE model penalised -0.2 per use.",
-        "grader": "server.app:grade_episode",
-        "score_range": [0.0, 1.0],
     },
     {
         "id": "task_3",
+        "grader": "server.graders:Task3Grader",
         "name": "Stateful Carbon-Aware Routing",
+        "description": "5-query episode with caching, KB lookups, cascade, and carbon-aware waiting.",
         "difficulty": "hard",
-        "num_queries": 5,
-        "max_reward": 7.5,
-        "description": "5-query stateful episode with caching, KB, and carbon-aware waiting.",
-        "grader": "server.app:grade_episode",
-        "score_range": [0.0, 1.0],
     },
 ]
 
+
 @app.get("/tasks")
 def list_tasks() -> dict:
-    """Enumerate all tasks with grader metadata (Phase 2 validator)."""
+    """Enumerate all tasks (Phase 2 validator calls this)."""
     return {"tasks": _TASK_META, "count": len(_TASK_META)}
+
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str) -> dict:
@@ -102,23 +97,10 @@ def get_task(task_id: str) -> dict:
             return t
     raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'")
 
-# ── Phase 2: /grade  ──────────────────────────────────────────────────────────
-# The validator POSTs completed episode data here and expects score in [0, 1].
-#
-# GRADER BOUNDS (max achievable reward per task):
-#   task_1: 1 query  × 1.5 max/query = 1.5
-#   task_2: 3 queries × 1.5 max/query = 4.5
-#   task_3: 5 queries × 1.5 max/query = 7.5
-#
-# Max reward per query = score(1.0) + cache_bonus(0.5) - 0 penalties = 1.5
-# This is tight but achievable when the query is already in cache.
 
-_MAX_REWARDS = {"task_1": 1.5, "task_2": 4.5, "task_3": 7.5}
-
-def grade_episode(task_id: str, total_reward: float) -> float:
-    """Return normalised score in [0.0, 1.0]."""
-    max_r = _MAX_REWARDS.get(task_id, 1.5)
-    return float(min(max(total_reward / max_r, 0.0), 1.0))
+# ── POST /grade ───────────────────────────────────────────────────────────────
+# Uses the same grader classes referenced in openenv.yaml so behaviour is
+# identical whether the validator calls the class directly or via this endpoint.
 
 class GradeRequest(BaseModel):
     task_id: str
@@ -127,52 +109,46 @@ class GradeRequest(BaseModel):
     steps: int = 0
     success: bool = False
 
+
 @app.post("/grade")
 def grade(request: GradeRequest) -> dict:
     """
-    Grade a completed episode.  Returns score in [0.0, 1.0].
+    Grade a completed episode.  Returns score in [0.01, 0.99].
 
-    Body:
-        task_id    : "task_1" | "task_2" | "task_3"
-        rewards    : per-step reward list
-        steps      : total steps taken
-        episode_id : (optional) for logging
+    Body: task_id, rewards (per-step list), steps, episode_id (optional)
     """
-    valid = set(_MAX_REWARDS)
+    valid = {"task_1", "task_2", "task_3"}
     if request.task_id not in valid:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid task_id '{request.task_id}'. Valid: {sorted(valid)}",
         )
-    total = sum(request.rewards)
-    score = grade_episode(request.task_id, total)
-    return {
-        "task_id":      request.task_id,
-        "score":        round(score, 4),
-        "success":      score >= 0.5,
-        "total_reward": round(total, 4),
-        "steps":        request.steps,
-        "details": {
-            "per_step_rewards": [round(r, 4) for r in request.rewards],
-            "max_possible_reward": _MAX_REWARDS[request.task_id],
-        },
-    }
+    grader = get_grader(request.task_id)
+    result = grader({
+        "task_id":    request.task_id,
+        "episode_id": request.episode_id,
+        "rewards":    request.rewards,
+        "steps":      request.steps,
+    })
+    return result
 
-# ── Optional: replay-based grader (actions → score) ──────────────────────────
-# Some validators submit action sequences rather than pre-computed rewards.
+
+# ── POST /grade/replay ────────────────────────────────────────────────────────
 
 class GraderAction(BaseModel):
     strategy: str
     model_choice: str
     exit_flag: bool = False
 
+
 class ReplayRequest(BaseModel):
     task_id: str
     actions: List[GraderAction]
 
+
 @app.post("/grade/replay")
 def grade_replay(request: ReplayRequest) -> dict:
-    """Run action sequence and grade. Returns score in [0.0, 1.0]."""
+    """Run an action sequence and grade it."""
     if request.task_id not in TASKS:
         raise HTTPException(status_code=400, detail=f"Invalid task_id: {request.task_id}")
 
@@ -194,18 +170,12 @@ def grade_replay(request: ReplayRequest) -> dict:
         obs = env.step(action)
         rewards.append(obs.reward_details.total_reward)
 
-    total = sum(rewards)
-    score = grade_episode(request.task_id, total)
-    return {
-        "task_id": request.task_id,
-        "score":   round(score, 4),
-        "success": score >= 0.5,
-        "reward":  round(total, 4),
-        "steps":   len(rewards),
-    }
+    grader = get_grader(request.task_id)
+    result = grader({"task_id": request.task_id, "rewards": rewards, "steps": len(rewards)})
+    return result
+
 
 # ── Gradio demo UI at /ui ─────────────────────────────────────────────────────
-# Mounted at /ui so it DOES NOT override /reset, /step, /grade, /tasks.
 
 try:
     import gradio as gr
@@ -217,17 +187,18 @@ try:
             "task_id": s.task_id, "step_count": s.step_count,
             "step_index": s.step_index, "query_index": s.query_index,
             "total_energy": float(s.total_energy), "total_latency": float(s.total_latency),
-            "cache_contents": list(s.cache_contents), "carbon_history_index": s.carbon_history_index,
+            "cache_contents": list(s.cache_contents),
+            "carbon_history_index": s.carbon_history_index,
         }
 
     def _restore(env: EcoLLMInferenceRoutingEnvironment, s: dict) -> None:
-        env._state.task_id = str(s["task_id"])
-        env._state.step_count = int(s["step_count"])
-        env._state.step_index = int(s["step_index"])
-        env._state.query_index = int(s["query_index"])
-        env._state.total_energy = float(s["total_energy"])
-        env._state.total_latency = float(s["total_latency"])
-        env._state.cache_contents = list(s["cache_contents"])
+        env._state.task_id              = str(s["task_id"])
+        env._state.step_count           = int(s["step_count"])
+        env._state.step_index           = int(s["step_index"])
+        env._state.query_index          = int(s["query_index"])
+        env._state.total_energy         = float(s["total_energy"])
+        env._state.total_latency        = float(s["total_latency"])
+        env._state.cache_contents       = list(s["cache_contents"])
         env._state.carbon_history_index = int(s["carbon_history_index"])
 
     def reset_demo(task_id: str) -> tuple:
@@ -255,16 +226,20 @@ try:
                 total = round(float(st.get("total_reward", 0.0)), 3)
                 return "Episode complete. Click Reset.", "", total, {**st, "active": False}
             new_obs = e.step(RLAction(
-                strategy=Strategy(strategy), model_choice=ModelChoice(model), exit_flag=exit_flag))
-            rd = new_obs.reward_details
+                strategy=Strategy(strategy),
+                model_choice=ModelChoice(model),
+                exit_flag=exit_flag,
+            ))
+            rd      = new_obs.reward_details
             rewards = list(st.get("rewards", [])) + [round(rd.total_reward, 4)]
-            total = float(st.get("total_reward", 0.0)) + rd.total_reward
+            total   = float(st.get("total_reward", 0.0)) + rd.total_reward
             history = list(st.get("history", []))
             history.append(f"Step {len(history)+1}: {strategy}+{model} "
                            f"→ {rd.total_reward:+.3f} ({'✓' if rd.correct else '✗'})")
             log = "\n".join(history) + "\n\n"
             if new_obs.done:
-                sc = grade_episode(str(st["task_id"]), total)
+                grader = get_grader(str(st["task_id"]))
+                sc = grader({"task_id": str(st["task_id"]), "rewards": rewards})["score"]
                 log += f"Done! Score: {sc:.3f}"
             else:
                 log += (f"Query: {new_obs.query}\nCarbon: {new_obs.carbon_intensity:.2f}\n"
@@ -293,9 +268,11 @@ try:
         obs_box = gr.Textbox(label="State", lines=6, interactive=False)
         gr.Markdown("### Action")
         with gr.Row():
-            strat = gr.Dropdown(["NONE","USE_CACHE","DO_CASCADE","EARLY_EXIT","WAIT","CALL_KB"],
-                                value="NONE", label="Strategy")
-            mdl   = gr.Dropdown(["SMALL","MEDIUM","LARGE"], value="SMALL", label="Model")
+            strat = gr.Dropdown(
+                ["NONE", "USE_CACHE", "DO_CASCADE", "EARLY_EXIT", "WAIT", "CALL_KB"],
+                value="NONE", label="Strategy",
+            )
+            mdl   = gr.Dropdown(["SMALL", "MEDIUM", "LARGE"], value="SMALL", label="Model")
             exitf = gr.Checkbox(label="exit_flag", value=False)
         stp = gr.Button("▶️ Step", variant="secondary")
         rwd = gr.Textbox(label="Reward", interactive=False)
@@ -304,7 +281,7 @@ try:
             "### Formula\n"
             "`reward = score − (carbon × energy) − (0.1 × latency) + bonuses`\n\n"
             "| Model  | Energy | Latency | | Strategy  | Bonus/Penalty |\n"
-            "|--------|--------|---------|--|-----------|---------------|\n"
+            "|--------|--------|---------|-|-----------|---------------|\n"
             "| SMALL  | 0.1    | 1.0     | | USE_CACHE | +0.5          |\n"
             "| MEDIUM | 0.3    | 2.0     | | CALL_KB   | cheap         |\n"
             "| LARGE  | 0.6    | 5.0     | | WAIT      | skip carbon   |"
@@ -315,11 +292,12 @@ try:
     app = mount_gradio_app(app, demo, path="/ui")
 
 except ImportError:
-    pass   # Gradio optional — API works fine without it
+    pass
 
 
 def main(host: str = "0.0.0.0", port: int = 7860) -> None:
     uvicorn.run(app, host=host, port=port, log_level="info")
+
 
 if __name__ == "__main__":
     main()
