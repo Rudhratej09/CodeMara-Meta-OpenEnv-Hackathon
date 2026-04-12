@@ -10,7 +10,7 @@ from openenv.core.env_server.types import EnvironmentMetadata
 
 from server.models import ModelChoice, RLAction, RLObservation, RLReward, RLState, Strategy
 from graders import GRADERS
-from tasks import TASK_REGISTRY
+from tasks import TASKS, TASK_REGISTRY
 from server.tasks import (
     CARBON_SCHEDULE,
     ENERGY_COSTS,
@@ -35,7 +35,8 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
 
     def __init__(self) -> None:
         super().__init__()
-        self.tasks = TASK_REGISTRY
+        self.tasks = TASKS
+        self.task_registry = TASK_REGISTRY
         self.graders = GRADERS
         self.current_task: TaskSpec = get_task("task_1")
         self._state = RLState(

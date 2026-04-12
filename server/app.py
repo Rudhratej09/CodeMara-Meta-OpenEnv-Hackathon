@@ -3,56 +3,33 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
+from openenv.core.env_server.http_server import create_app
 from pydantic import BaseModel
 import uvicorn
 
 from graders import GRADERS, grade_task_1
 from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import ModelChoice, RLAction, RLObservation, RLState, Strategy
+from tasks import TASKS as VALIDATOR_TASKS
 from tasks import TASK_REGISTRY
 
 
-environment = EcoLLMInferenceRoutingEnvironment()
-app = FastAPI(title="Eco-LLM Inference Routing", version="1.0.0")
+app = create_app(
+    EcoLLMInferenceRoutingEnvironment,
+    RLAction,
+    RLObservation,
+    env_name="eco_llm_inference_routing",
+    max_concurrent_envs=4,
+)
 
 _TASK_META = [
     {
-        "id": "task_1",
-        "task_id": "task_1",
-        "name": "Single Query Routing",
-        "title": "Single Query Routing",
-        "difficulty": "easy",
-        "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
-        "max_steps": 10,
-        "grader": "graders:grade_task_1",
-        "graders": ["graders:grade_task_1"],
-        "reward_range": [0.0, 1.0],
-    },
-    {
-        "id": "task_2",
-        "task_id": "task_2",
-        "name": "Multi-Query Episode",
-        "title": "Multi-Query Episode",
-        "difficulty": "medium",
-        "description": "Route 3 queries; LARGE model penalised -0.2 per use.",
-        "max_steps": 20,
-        "grader": "graders:grade_task_2",
-        "graders": ["graders:grade_task_2"],
-        "reward_range": [0.0, 1.0],
-    },
-    {
-        "id": "task_3",
-        "task_id": "task_3",
-        "name": "Stateful Carbon-Aware Routing",
-        "title": "Stateful Carbon-Aware Routing",
-        "difficulty": "hard",
-        "description": "5-query episode: caching, KB lookups, cascade, carbon-aware waiting.",
-        "max_steps": 50,
-        "grader": "graders:grade_task_3",
-        "graders": ["graders:grade_task_3"],
-        "reward_range": [0.0, 1.0],
-    },
+        **task,
+        "grader": task.get("grader_path", "unknown"),
+        "graders": task.get("grader_paths", []),
+    }
+    for task in VALIDATOR_TASKS
 ]
 
 _ACTION_SPACE = {
@@ -150,7 +127,12 @@ def schema() -> dict[str, Any]:
 
 
 @app.get("/tasks")
-def list_tasks() -> list[str]:
+def list_tasks() -> list[dict[str, Any]]:
+    return _TASK_META
+
+
+@app.get("/task_ids")
+def list_task_ids() -> list[str]:
     return list(TASK_REGISTRY.keys())
 
 
@@ -169,45 +151,6 @@ def get_task(task_id: str) -> dict[str, Any]:
         if task["id"] == task_id:
             return task
     raise HTTPException(status_code=404, detail=f"Unknown task '{task_id}'")
-
-
-@app.post("/reset")
-def reset(payload: ResetRequest | None = None) -> dict[str, Any]:
-    task_id = "task_1"
-    seed = None
-    episode_id = None
-    if payload is not None:
-        task_id = payload.task_id or "task_1"
-        seed = payload.seed
-        episode_id = payload.episode_id
-    observation = environment.reset(task_id=task_id, seed=seed, episode_id=episode_id)
-    return {
-        "observation": observation.model_dump(),
-        "reward": 0.0,
-        "done": False,
-        "info": {
-            "tasks": _TASK_META,
-            "task_id": task_id,
-        },
-    }
-
-
-@app.post("/step")
-def step(payload: RLAction) -> dict[str, Any]:
-    observation = environment.step(payload)
-    return {
-        "observation": observation.model_dump(),
-        "reward": float(observation.reward),
-        "done": bool(observation.done),
-        "info": {
-            "task_id": environment.current_task.task_id,
-        },
-    }
-
-
-@app.get("/state")
-def state() -> dict[str, Any]:
-    return environment.state.model_dump()
 
 
 def _grade_payload(request: GradeRequest) -> dict[str, Any]:
