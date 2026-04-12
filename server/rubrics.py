@@ -33,9 +33,9 @@ class _RubricMeta(type(OpenEnvRubric)):
 
 _MAX_REWARD_PER_QUERY: float = 1.5
 _MAX_REWARDS: dict[str, float] = {
-    "easy": 1.0 * _MAX_REWARD_PER_QUERY,
-    "medium": 3.0 * _MAX_REWARD_PER_QUERY,
-    "hard": 5.0 * _MAX_REWARD_PER_QUERY,
+    "task_1": 1.0 * _MAX_REWARD_PER_QUERY,
+    "task_2": 3.0 * _MAX_REWARD_PER_QUERY,
+    "task_3": 5.0 * _MAX_REWARD_PER_QUERY,
 }
 _SCORE_MIN: float = 0.01
 _SCORE_MAX: float = 0.99
@@ -51,7 +51,7 @@ def _extract_rewards(episode_data: dict[str, Any]) -> list[float]:
 
 
 def _compute_score(task_id: str, rewards: list[float]) -> float:
-    max_reward = _MAX_REWARDS.get(task_id, _MAX_REWARDS["easy"])
+    max_reward = _MAX_REWARDS.get(task_id, _MAX_REWARDS["task_1"])
     total_reward = sum(rewards)
     raw_score = total_reward / max_reward if max_reward > 0 else 0.0
     return float(max(_SCORE_MIN, min(_SCORE_MAX, raw_score)))
@@ -70,14 +70,14 @@ def _make_result(task_id: str, score: float, rewards: list[float]) -> dict[str, 
         "steps": len(rewards),
         "details": {
             "per_step_rewards": [round(reward, 4) for reward in rewards],
-            "max_possible_reward": _MAX_REWARDS.get(task_id, _MAX_REWARDS["easy"]),
+            "max_possible_reward": _MAX_REWARDS.get(task_id, _MAX_REWARDS["task_1"]),
             "score_range": [_SCORE_MIN, _SCORE_MAX],
         },
     }
 
 
 class BaseEpisodeRubric(OpenEnvRubric, metaclass=_RubricMeta):
-    task_id: str = "easy"
+    task_id: str = "task_1"
 
     def __init__(self) -> None:
         self.reset()
@@ -109,15 +109,15 @@ class BaseEpisodeRubric(OpenEnvRubric, metaclass=_RubricMeta):
 
 
 class Task1Rubric(BaseEpisodeRubric):
-    task_id = "easy"
+    task_id = "task_1"
 
 
 class Task2Rubric(BaseEpisodeRubric):
-    task_id = "medium"
+    task_id = "task_2"
 
 
 class Task3Rubric(BaseEpisodeRubric):
-    task_id = "hard"
+    task_id = "task_3"
 
 
 Task1Grader = Task1Rubric
@@ -126,9 +126,9 @@ Task3Grader = Task3Rubric
 
 
 GRADERS: dict[str, type[BaseEpisodeRubric]] = {
-    "easy": Task1Rubric,
-    "medium": Task2Rubric,
-    "hard": Task3Rubric,
+    "task_1": Task1Rubric,
+    "task_2": Task2Rubric,
+    "task_3": Task3Rubric,
 }
 
 

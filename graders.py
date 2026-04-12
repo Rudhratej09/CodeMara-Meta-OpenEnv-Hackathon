@@ -31,17 +31,17 @@ def _grade(task_id: str, *args: Any, **kwargs: Any) -> float:
 
 def grade_easy(state: dict[str, Any], reward: float) -> float:
     del state
-    return _grade("easy", {}, reward)
+    return _grade("task_1", {}, reward)
 
 
 def grade_medium(state: dict[str, Any], reward: float) -> float:
     del state
-    return _grade("medium", {}, reward)
+    return _grade("task_2", {}, reward)
 
 
 def grade_hard(state: dict[str, Any], reward: float) -> float:
     del state
-    return _grade("hard", {}, reward)
+    return _grade("task_3", {}, reward)
 
 
 def grade_task_1(state: dict[str, Any], reward: float) -> float:
@@ -57,15 +57,15 @@ def grade_task_3(state: dict[str, Any], reward: float) -> float:
 
 
 def EasyGrader(*args: Any, **kwargs: Any) -> float:
-    return _grade("easy", *args, **kwargs)
+    return _grade("task_1", *args, **kwargs)
 
 
 def MediumGrader(*args: Any, **kwargs: Any) -> float:
-    return _grade("medium", *args, **kwargs)
+    return _grade("task_2", *args, **kwargs)
 
 
 def HardGrader(*args: Any, **kwargs: Any) -> float:
-    return _grade("hard", *args, **kwargs)
+    return _grade("task_3", *args, **kwargs)
 
 
 Task1Rubric = EasyGrader
@@ -77,9 +77,9 @@ Task3Grader = HardGrader
 
 
 GRADERS = {
-    "easy": EasyGrader,
-    "medium": MediumGrader,
-    "hard": HardGrader,
+    "task_1": grade_task_1,
+    "task_2": grade_task_2,
+    "task_3": grade_task_3,
 }
 
 
