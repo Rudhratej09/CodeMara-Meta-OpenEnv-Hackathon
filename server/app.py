@@ -8,7 +8,7 @@ from openenv.core.env_server.http_server import create_app
 from pydantic import BaseModel
 import uvicorn
 
-from graders import GRADERS, grade_task_1
+from graders import GRADERS, grade_easy
 from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import ModelChoice, RLAction, RLObservation, RLState, Strategy
 from tasks import TASKS as VALIDATOR_TASKS
