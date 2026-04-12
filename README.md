@@ -23,6 +23,7 @@ https://huggingface.co/spaces/rudhratej09/Eco-LLM-Carbon-Aware-LLM-Inference-Rou
 
 after running the space for ui:
 https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/ui/
+
 Live endpoints:
 - `/tasks`: https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/tasks
 - `/metadata`: https://rudhratej09-eco-llm-carbon-aware-llm-inference-routing.hf.space/metadata
