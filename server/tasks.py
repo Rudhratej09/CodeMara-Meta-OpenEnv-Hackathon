@@ -118,7 +118,14 @@ TASKS: dict[str, TaskSpec] = {
     ),
 }
 
+TASK_ALIASES: dict[str, str] = {
+    "easy": "task_1",
+    "medium": "task_2",
+    "hard": "task_3",
+}
+
 
 def get_task(task_id: str) -> TaskSpec:
     """Return a task by id, defaulting to the easy task for unknown ids."""
-    return TASKS.get(task_id, TASKS["task_1"])
+    resolved_task_id = TASK_ALIASES.get(task_id, task_id)
+    return TASKS.get(resolved_task_id, TASKS["task_1"])

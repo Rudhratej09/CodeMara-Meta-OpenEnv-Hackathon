@@ -2,52 +2,52 @@
 
 from __future__ import annotations
 
-from graders import grade_task_1, grade_task_2, grade_task_3
+from graders import grade_easy, grade_hard, grade_medium
 from server.tasks import TASKS as TASK_REGISTRY
 from server.tasks import get_task
 
 
 TASKS = [
     {
-        "id": "task_1",
-        "task_id": "task_1",
-        "name": "Single Query Routing",
+        "id": "easy",
+        "task_id": "easy",
+        "name": "easy",
         "title": "Single Query Routing",
         "difficulty": "easy",
         "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "max_steps": 10,
-        "grader": grade_task_1,
-        "grader_path": "graders:grade_task_1",
-        "graders": [grade_task_1],
-        "grader_paths": ["graders:grade_task_1"],
+        "grader": grade_easy,
+        "grader_path": "graders:grade_easy",
+        "graders": [grade_easy],
+        "grader_paths": ["graders:grade_easy"],
         "reward_range": [0.0, 1.0],
     },
     {
-        "id": "task_2",
-        "task_id": "task_2",
-        "name": "Multi-Query Episode",
+        "id": "medium",
+        "task_id": "medium",
+        "name": "medium",
         "title": "Multi-Query Episode",
         "difficulty": "medium",
         "description": "Route 3 queries of varying complexity. LARGE model incurs -0.2 penalty per use.",
         "max_steps": 20,
-        "grader": grade_task_2,
-        "grader_path": "graders:grade_task_2",
-        "graders": [grade_task_2],
-        "grader_paths": ["graders:grade_task_2"],
+        "grader": grade_medium,
+        "grader_path": "graders:grade_medium",
+        "graders": [grade_medium],
+        "grader_paths": ["graders:grade_medium"],
         "reward_range": [0.0, 1.0],
     },
     {
-        "id": "task_3",
-        "task_id": "task_3",
-        "name": "Stateful Carbon-Aware Routing",
+        "id": "hard",
+        "task_id": "hard",
+        "name": "hard",
         "title": "Stateful Carbon-Aware Routing",
         "difficulty": "hard",
         "description": "5-query episode with caching, KB lookups, cascade strategies, and carbon-aware waiting.",
         "max_steps": 50,
-        "grader": grade_task_3,
-        "grader_path": "graders:grade_task_3",
-        "graders": [grade_task_3],
-        "grader_paths": ["graders:grade_task_3"],
+        "grader": grade_hard,
+        "grader_path": "graders:grade_hard",
+        "graders": [grade_hard],
+        "grader_paths": ["graders:grade_hard"],
         "reward_range": [0.0, 1.0],
     },
 ]
@@ -55,9 +55,9 @@ TASKS = [
 TASK_IDS = [task["task_id"] for task in TASKS]
 
 TASK_MAP = {task["task_id"]: task for task in TASKS}
-easy = TASK_MAP["task_1"]
-medium = TASK_MAP["task_2"]
-hard = TASK_MAP["task_3"]
+easy = TASK_MAP["easy"]
+medium = TASK_MAP["medium"]
+hard = TASK_MAP["hard"]
 
 __all__ = [
     "TASKS",

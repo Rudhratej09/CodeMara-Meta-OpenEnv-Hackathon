@@ -28,38 +28,38 @@ api:
       path: /grader
 
 tasks:
-  - id: task_1
-    task_id: task_1
-    name: Single Query Routing
+  - id: easy
+    task_id: easy
+    name: easy
     title: Single Query Routing
     difficulty: easy
     description: "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency."
     max_steps: 10
-    grader: graders:grade_task_1
+    grader: graders:grade_easy
     graders:
-      - graders:grade_task_1
+      - graders:grade_easy
     reward_range: [0.0, 1.0]
 
-  - id: task_2
-    task_id: task_2
-    name: Multi-Query Episode
+  - id: medium
+    task_id: medium
+    name: medium
     title: Multi-Query Episode
     difficulty: medium
     description: "Route 3 queries of varying complexity. LARGE model incurs -0.2 penalty per use."
     max_steps: 20
-    grader: graders:grade_task_2
+    grader: graders:grade_medium
     graders:
-      - graders:grade_task_2
+      - graders:grade_medium
     reward_range: [0.0, 1.0]
 
-  - id: task_3
-    task_id: task_3
-    name: Stateful Carbon-Aware Routing
+  - id: hard
+    task_id: hard
+    name: hard
     title: Stateful Carbon-Aware Routing
     difficulty: hard
     description: "5-query episode with caching, KB lookups, cascade strategies, and carbon-aware waiting."
     max_steps: 50
-    grader: graders:grade_task_3
+    grader: graders:grade_hard
     graders:
-      - graders:grade_task_3
+      - graders:grade_hard
     reward_range: [0.0, 1.0]

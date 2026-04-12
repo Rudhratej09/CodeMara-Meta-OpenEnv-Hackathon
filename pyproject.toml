@@ -28,7 +28,7 @@ server = "server.app:main"
 [tool.setuptools]
 include-package-data = true
 packages = ["server"]
-py-modules = ["baseline", "inference"]
+py-modules = ["__init__", "baseline", "inference", "tasks", "graders", "rubrics"]
 package-dir = { "server" = "server" }
 
 [tool.pytest.ini_options]
