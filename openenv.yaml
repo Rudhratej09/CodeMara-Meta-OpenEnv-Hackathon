@@ -35,9 +35,9 @@ tasks:
     difficulty: easy
     description: "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency."
     max_steps: 10
-    grader: graders:grade_easy
+    grader: "graders:EasyGrader"
     graders:
-      - graders:grade_easy
+      - "graders:EasyGrader"
     reward_range: [0.0, 1.0]
 
   - id: medium
@@ -47,9 +47,9 @@ tasks:
     difficulty: medium
     description: "Route 3 queries of varying complexity. LARGE model incurs -0.2 penalty per use."
     max_steps: 20
-    grader: graders:grade_medium
+    grader: "graders:MediumGrader"
     graders:
-      - graders:grade_medium
+      - "graders:MediumGrader"
     reward_range: [0.0, 1.0]
 
   - id: hard
@@ -59,7 +59,7 @@ tasks:
     difficulty: hard
     description: "5-query episode with caching, KB lookups, cascade strategies, and carbon-aware waiting."
     max_steps: 50
-    grader: graders:grade_hard
+    grader: "graders:HardGrader"
     graders:
-      - graders:grade_hard
+      - "graders:HardGrader"
     reward_range: [0.0, 1.0]
