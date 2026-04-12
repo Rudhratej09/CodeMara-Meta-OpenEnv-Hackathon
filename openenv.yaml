@@ -4,29 +4,45 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
+api:
+  reset: /reset
+  step: /step
+  state: /state
+  tasks: /tasks
+  grader: /grader
 description: "Carbon-aware RL environment for multi-objective LLM query routing"
 version: "1.0.0"
+reward_range: [0.0, 1.0]
 
 tasks:
   - id: "easy"
-    grader: "graders:EasyGrader"
-    rubric: "graders:EasyGrader"
+    grader: "graders:grade_task_1"
+    rubric: "graders:grade_task_1"
+    graders:
+      - "graders:grade_task_1"
+    reward_range: [0.0, 1.0]
     name: "Single Query Routing"
     title: "Single Query Routing"
     description: "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency. The agent must choose a model that meets the query minimum capability requirement."
     difficulty: "easy"
 
   - id: "medium"
-    grader: "graders:MediumGrader"
-    rubric: "graders:MediumGrader"
+    grader: "graders:grade_task_2"
+    rubric: "graders:grade_task_2"
+    graders:
+      - "graders:grade_task_2"
+    reward_range: [0.0, 1.0]
     name: "Multi-Query Episode"
     title: "Multi-Query Episode"
     description: "Route three queries of varying complexity. An extra penalty applies when the LARGE model is used unnecessarily. The agent must balance accuracy against energy cost over the 3-query episode."
     difficulty: "medium"
 
   - id: "hard"
-    grader: "graders:HardGrader"
-    rubric: "graders:HardGrader"
+    grader: "graders:grade_task_3"
+    rubric: "graders:grade_task_3"
+    graders:
+      - "graders:grade_task_3"
+    reward_range: [0.0, 1.0]
     name: "Stateful Carbon-Aware Routing"
     title: "Stateful Carbon-Aware Routing"
     description: "Route five queries including repeated queries, a KB-answerable question, and a compliance query requiring LARGE. The agent must exploit caching, cascade strategies, KB lookups, and WAIT actions to maximise cumulative reward."
