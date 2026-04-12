@@ -7,7 +7,7 @@ Environment variables:
     HF_TOKEN       Your HuggingFace API key  (REQUIRED, no default)
     API_BASE_URL   LLM endpoint              (default: https://router.huggingface.co/v1)
     MODEL_NAME     Model identifier          (default: Qwen/Qwen2.5-72B-Instruct)
-    ECO_LLM_TASK   Task to run              (default: task_1 | task_2 | task_3 | all)
+    ECO_LLM_TASK   Task selector             (default: all discovered tasks)
 
 Stdout format (mandatory):
     [START] task=<task> env=eco_llm_inference_routing model=<model>
@@ -32,7 +32,10 @@ import json
 import os
 import re
 import textwrap
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, List, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 from openai import OpenAI
 
@@ -42,8 +45,9 @@ HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")
 API_KEY: Optional[str] = HF_TOKEN or os.getenv("OPENAI_API_KEY")
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME: str  = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
-TASK_ID: str     = os.getenv("ECO_LLM_TASK", "task_1")
+TASK_ID: str     = os.getenv("ECO_LLM_TASK", "all")
 BENCHMARK: str   = "eco_llm_inference_routing"
+ENV_BASE_URL: str = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 
 MAX_STEPS: int = 50
 SUCCESS_SCORE_THRESHOLD: float = 0.5
@@ -52,7 +56,6 @@ MAX_TOKENS: int = 80
 
 # Max reward per query step = score(1.0) + cache_bonus(0.5) = 1.5
 _MAX_REWARD_PER_STEP: float = 1.5
-TASK_QUERY_COUNTS: dict[str, int] = {"task_1": 1, "task_2": 3, "task_3": 5}
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are an LLM inference router for the Eco-LLM environment.
@@ -129,6 +132,128 @@ def sanitize_field(value: Optional[str]) -> str:
     compact = re.sub(r"\s+", " ", str(value)).strip()
     compact = compact.replace("[", "(").replace("]", ")")
     return compact if compact else "null"
+
+
+def _extract_task_ids(payload: Any) -> List[str]:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("tasks"), list):
+            return _extract_task_ids(payload["tasks"])
+        for key in ("available_task_ids", "task_ids"):
+            values = payload.get(key)
+            if isinstance(values, list):
+                return [str(value).strip() for value in values if str(value).strip()]
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    task_ids: List[str] = []
+    for item in payload:
+        if isinstance(item, str) and item.strip():
+            task_ids.append(item.strip())
+            continue
+        if not isinstance(item, dict):
+            continue
+        for key in ("task_id", "id", "name"):
+            value = item.get(key)
+            if value and str(value).strip():
+                task_ids.append(str(value).strip())
+                break
+    return task_ids
+
+
+def _dedupe_task_ids(task_ids: List[str]) -> List[str]:
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for task_id in task_ids:
+        clean = task_id.strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        deduped.append(clean)
+    return deduped
+
+
+def _fetch_json(url: str) -> Optional[Any]:
+    try:
+        with urlopen(url, timeout=3) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return json.loads(response.read().decode(charset))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+
+
+def discover_task_ids() -> List[str]:
+    remote_candidates = [
+        f"{ENV_BASE_URL.rstrip('/')}/tasks",
+        f"{ENV_BASE_URL.rstrip('/')}/tasks/meta",
+        f"{ENV_BASE_URL.rstrip('/')}/task_ids",
+        f"{ENV_BASE_URL.rstrip('/')}/metadata",
+    ]
+    for url in remote_candidates:
+        payload = _fetch_json(url)
+        task_ids = _dedupe_task_ids(_extract_task_ids(payload))
+        if task_ids:
+            return task_ids
+
+    try:
+        from tasks import TASKS as VALIDATOR_TASKS  # type: ignore
+
+        task_ids = _dedupe_task_ids(_extract_task_ids(VALIDATOR_TASKS))
+        if task_ids:
+            return task_ids
+    except Exception:
+        pass
+
+    try:
+        from server.tasks import TASKS as SERVER_TASKS  # type: ignore
+
+        task_ids = _dedupe_task_ids(list(SERVER_TASKS.keys()))
+        if task_ids:
+            return task_ids
+    except Exception:
+        pass
+
+    manifest_path = Path(__file__).with_name("openenv.yaml")
+    if manifest_path.exists():
+        raw_lines = manifest_path.read_text(encoding="utf-8").splitlines()
+        task_ids: List[str] = []
+        for line in raw_lines:
+            stripped = line.strip()
+            if stripped.startswith("task_id:"):
+                task_ids.append(stripped.split(":", 1)[1].strip())
+        task_ids = _dedupe_task_ids(task_ids)
+        if task_ids:
+            return task_ids
+
+    return ["task_1"]
+
+
+def resolve_task_ids(task_selector: str) -> List[str]:
+    available_tasks = discover_task_ids()
+    selector = task_selector.strip()
+
+    if not selector or selector.lower() == "all":
+        return available_tasks
+
+    requested_tasks = [part.strip() for part in selector.split(",") if part.strip()]
+    return requested_tasks or available_tasks
+
+
+def get_task_query_count(task_id: str) -> int:
+    try:
+        from server.tasks import TASKS as SERVER_TASKS, TASK_ALIASES  # type: ignore
+
+        resolved_task_id = TASK_ALIASES.get(task_id, task_id)
+        task_spec = SERVER_TASKS.get(resolved_task_id)
+        if task_spec is not None:
+            queries = getattr(task_spec, "queries", ())
+            if queries:
+                return len(queries)
+    except Exception:
+        pass
+
+    return 1
 
 
 # ── LLM action ───────────────────────────────────────────────────────────────
@@ -236,13 +361,13 @@ async def run_episode(client: OpenAI, task_id: str) -> float:
     score:       float       = 0.0                        # ← key fix
 
     # Compute max reward for THIS task (not at module load)
-    max_total: float = TASK_QUERY_COUNTS.get(task_id, 5) * _MAX_REWARD_PER_STEP
+    max_total: float = get_task_query_count(task_id) * _MAX_REWARD_PER_STEP
 
     # Try AsyncEnvClient (HF Space), fall back to local env
     env = None
     try:
         from openenv.client import AsyncEnvClient  # type: ignore
-        env = AsyncEnvClient(base_url=os.getenv("ENV_BASE_URL", "http://localhost:7860"))
+        env = AsyncEnvClient(base_url=ENV_BASE_URL)
     except Exception:
         from server.env import EcoLLMInferenceRoutingEnvironment  # type: ignore
         env = EcoLLMInferenceRoutingEnvironment()
@@ -341,12 +466,11 @@ def main() -> None:
         )
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    # ECO_LLM_TASK=all runs all three tasks sequentially
-    tasks = ["task_1", "task_2", "task_3"] if TASK_ID == "all" \
-            else [TASK_ID if TASK_ID in TASK_QUERY_COUNTS else "task_1"]
+    async def run_tasks() -> None:
+        for task_id in resolve_task_ids(TASK_ID):
+            await run_episode(client, task_id)
 
-    for t in tasks:
-        asyncio.run(run_episode(client, t))
+    asyncio.run(run_tasks())
 
 
 if __name__ == "__main__":
