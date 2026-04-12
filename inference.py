@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import textwrap
 from typing import List, Optional
 
@@ -102,7 +103,7 @@ def log_start(task: str, env: str, model: str) -> None:
 def log_step(
     step: int, action: str, reward: float, done: bool, error: Optional[str]
 ) -> None:
-    error_val = error if error else "null"
+    error_val = sanitize_field(error) if error else "null"
     print(
         f"[STEP] step={step} action={action} "
         f"reward={reward:.2f} done={str(done).lower()} error={error_val}",
@@ -120,6 +121,14 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
         f"score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
+
+
+def sanitize_field(value: Optional[str]) -> str:
+    if not value:
+        return "null"
+    compact = re.sub(r"\s+", " ", str(value)).strip()
+    compact = compact.replace("[", "(").replace("]", ")")
+    return compact if compact else "null"
 
 
 # ── LLM action ───────────────────────────────────────────────────────────────
@@ -184,7 +193,6 @@ def get_routing_action(
         return {"strategy": strategy, "model_choice": model_choice, "exit_flag": exit_flag}
 
     except (asyncio.TimeoutError, TimeoutError) as exc:
-        print(f"[DEBUG] LLM timeout at step {step}: {exc}", flush=True)
         if query in cache_contents:
             return {"strategy": "USE_CACHE", "model_choice": "SMALL", "exit_flag": False}
         if carbon_intensity > 0.7:
@@ -192,7 +200,6 @@ def get_routing_action(
         return {"strategy": "NONE", "model_choice": "SMALL", "exit_flag": False}
 
     except Exception as exc:
-        print(f"[DEBUG] LLM error at step {step}: {exc}", flush=True)
         if query in cache_contents:
             return {"strategy": "USE_CACHE", "model_choice": "SMALL", "exit_flag": False}
         if kb_available:
@@ -203,8 +210,10 @@ def get_routing_action(
 
 
 def action_to_str(action: dict) -> str:
-    return (f"strategy={action['strategy']},"
-            f"model={action['model_choice']},"
+    strategy = sanitize_field(str(action["strategy"])).replace(",", "_")
+    model = sanitize_field(str(action["model_choice"])).replace(",", "_")
+    return (f"strategy={strategy},"
+            f"model={model},"
             f"exit={str(action['exit_flag']).lower()}")
 
 
@@ -233,7 +242,7 @@ async def run_episode(client: OpenAI, task_id: str) -> float:
     env = None
     try:
         from openenv.client import AsyncEnvClient  # type: ignore
-        env = AsyncEnvClient(base_url=os.getenv("ENV_BASE_URL", "http://localhost:8000"))
+        env = AsyncEnvClient(base_url=os.getenv("ENV_BASE_URL", "http://localhost:7860"))
     except Exception:
         from server.env import EcoLLMInferenceRoutingEnvironment  # type: ignore
         env = EcoLLMInferenceRoutingEnvironment()
@@ -283,8 +292,7 @@ async def run_episode(client: OpenAI, task_id: str) -> float:
                 else:
                     obs = env.step(rl_action)
             except Exception as exc:
-                error_msg = str(exc).replace("\n", " ")[:120]
-                print(f"[DEBUG] step error: {error_msg}", flush=True)
+                error_msg = sanitize_field(str(exc))[:120]
                 done = True
                 log_step(step=step, action=action_str, reward=0.0, done=True, error=error_msg)
                 break
@@ -314,8 +322,8 @@ async def run_episode(client: OpenAI, task_id: str) -> float:
                 await env.close()
             elif hasattr(env, "close"):
                 env.close()
-        except Exception as exc:
-            print(f"[DEBUG] env.close() error: {exc}", flush=True)
+        except Exception:
+            pass
 
         # score and success are always defined here (initialised above)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)

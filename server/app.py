@@ -31,7 +31,7 @@ from typing import List
 from openenv.core.env_server.http_server import create_app
 
 from server.env import EcoLLMInferenceRoutingEnvironment
-from server.graders import Task1Grader, Task2Grader, Task3Grader, get_grader
+from server.rubrics import Task1Rubric, Task2Rubric, Task3Rubric, get_grader
 from server.models import RLAction, RLObservation, Strategy, ModelChoice
 from server.tasks import TASKS
 
@@ -62,21 +62,21 @@ def health() -> dict:
 _TASK_META = [
     {
         "id": "task_1",
-        "grader": "server.graders:Task1Grader",
+        "grader": "rubrics:Task1Rubric",
         "name": "Single Query Routing",
         "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "difficulty": "easy",
     },
     {
         "id": "task_2",
-        "grader": "server.graders:Task2Grader",
+        "grader": "rubrics:Task2Rubric",
         "name": "Multi-Query Episode",
         "description": "Route three queries; LARGE model penalised -0.2 per use. Balance accuracy vs efficiency.",
         "difficulty": "medium",
     },
     {
         "id": "task_3",
-        "grader": "server.graders:Task3Grader",
+        "grader": "rubrics:Task3Rubric",
         "name": "Stateful Carbon-Aware Routing",
         "description": "5-query episode with caching, KB lookups, cascade, and carbon-aware waiting.",
         "difficulty": "hard",
