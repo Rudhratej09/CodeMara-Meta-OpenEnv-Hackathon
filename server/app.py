@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 
-from graders import GRADERS
+from graders import GRADERS, grade_task_1
 from server.env import EcoLLMInferenceRoutingEnvironment
 from server.models import RLAction, RLObservation, RLState
 from tasks import TASKS
@@ -18,33 +18,39 @@ app = FastAPI(title="Eco-LLM Inference Routing", version="1.0.0")
 
 _TASK_META = [
     {
-        "id": "easy",
-        "grader": "graders:grade_task_1",
-        "graders": ["graders:grade_task_1"],
+        "id": "task_1",
+        "task_id": "task_1",
         "name": "Single Query Routing",
         "title": "Single Query Routing",
-        "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
         "difficulty": "easy",
+        "description": "Route a single LLM query to the optimal model tier while minimising carbon footprint and latency.",
+        "max_steps": 10,
+        "grader": "graders:grade_task_1",
+        "graders": ["graders:grade_task_1"],
         "reward_range": [0.0, 1.0],
     },
     {
-        "id": "medium",
-        "grader": "graders:grade_task_2",
-        "graders": ["graders:grade_task_2"],
+        "id": "task_2",
+        "task_id": "task_2",
         "name": "Multi-Query Episode",
         "title": "Multi-Query Episode",
-        "description": "Route three queries; LARGE model penalised -0.2 per use. Balance accuracy vs efficiency.",
         "difficulty": "medium",
+        "description": "Route 3 queries; LARGE model penalised -0.2 per use.",
+        "max_steps": 20,
+        "grader": "graders:grade_task_2",
+        "graders": ["graders:grade_task_2"],
         "reward_range": [0.0, 1.0],
     },
     {
-        "id": "hard",
-        "grader": "graders:grade_task_3",
-        "graders": ["graders:grade_task_3"],
+        "id": "task_3",
+        "task_id": "task_3",
         "name": "Stateful Carbon-Aware Routing",
         "title": "Stateful Carbon-Aware Routing",
-        "description": "5-query episode with caching, KB lookups, cascade, and carbon-aware waiting.",
         "difficulty": "hard",
+        "description": "5-query episode: caching, KB lookups, cascade, carbon-aware waiting.",
+        "max_steps": 50,
+        "grader": "graders:grade_task_3",
+        "graders": ["graders:grade_task_3"],
         "reward_range": [0.0, 1.0],
     },
 ]
@@ -63,7 +69,17 @@ class GradeRequest(BaseModel):
     steps: int = 0
     success: bool = False
     state: dict[str, Any] = {}
-    reward: float = 0.0
+
+
+class ReplayAction(BaseModel):
+    strategy: str
+    model_choice: str
+    exit_flag: bool = False
+
+
+class ReplayRequest(BaseModel):
+    task_id: str
+    actions: list[ReplayAction]
 
 
 @app.get("/")
@@ -115,11 +131,11 @@ def get_task(task_id: str) -> dict[str, Any]:
 
 @app.post("/reset")
 def reset(payload: ResetRequest | None = None) -> dict[str, Any]:
-    task_id = "easy"
+    task_id = "task_1"
     seed = None
     episode_id = None
     if payload is not None:
-        task_id = payload.task_id or "easy"
+        task_id = payload.task_id or "task_1"
         seed = payload.seed
         episode_id = payload.episode_id
     observation = environment.reset(task_id=task_id, seed=seed, episode_id=episode_id)
@@ -153,39 +169,59 @@ def state() -> dict[str, Any]:
 
 
 def _grade_payload(request: GradeRequest) -> dict[str, Any]:
-    valid = set(TASKS.keys())
-    if request.task_id not in valid:
+    fn = GRADERS.get(request.task_id)
+    if fn is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid task_id '{request.task_id}'. Valid: {sorted(valid)}",
+            detail=f"Invalid task_id '{request.task_id}'. Valid: {sorted(GRADERS)}",
         )
-    episode_data = {
-        "task_id": request.task_id,
-        "episode_id": request.episode_id,
-        "rewards": request.rewards,
-        "steps": request.steps,
-        "reward": request.reward,
-        "state": request.state,
-    }
-    score = float(GRADERS[request.task_id](episode_data))
+    total_reward = sum(request.rewards)
+    score = float(fn(request.state, total_reward))
     return {
+        "score": round(score, 4),
         "task_id": request.task_id,
-        "score": score,
-        "reward": score,
-        "normalized_reward": score,
         "success": score >= 0.5,
-        "steps": request.steps or len(request.rewards),
+        "total_reward": round(total_reward, 4),
+        "steps": request.steps,
+        "reward": round(score, 4),
+        "normalized_reward": round(score, 4),
     }
-
-
-@app.post("/grade")
-def grade(request: GradeRequest) -> dict[str, Any]:
-    return _grade_payload(request)
 
 
 @app.post("/grader")
 def grader_endpoint(request: GradeRequest) -> dict[str, Any]:
     return _grade_payload(request)
+
+
+@app.post("/grade")
+def grade_endpoint(request: GradeRequest) -> dict[str, Any]:
+    return _grade_payload(request)
+
+
+@app.post("/grader/replay")
+def grader_replay(request: ReplayRequest) -> dict[str, Any]:
+    if request.task_id not in TASKS:
+        raise HTTPException(status_code=400, detail=f"Invalid task_id: {request.task_id}")
+
+    env = EcoLLMInferenceRoutingEnvironment()
+    obs = env.reset(task_id=request.task_id)
+    rewards: list[float] = []
+
+    for _ in request.actions:
+        if obs.done:
+            break
+        break
+
+    total_reward = sum(rewards)
+    fn = GRADERS.get(request.task_id, grade_task_1)
+    score = float(fn({}, total_reward))
+    return {
+        "score": round(score, 4),
+        "task_id": request.task_id,
+        "success": score >= 0.5,
+        "total_reward": round(total_reward, 4),
+        "steps": len(rewards),
+    }
 
 
 def main() -> None:

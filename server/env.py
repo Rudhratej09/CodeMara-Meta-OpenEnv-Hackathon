@@ -37,7 +37,7 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
         super().__init__()
         self.tasks = TASKS
         self.graders = GRADERS
-        self.current_task: TaskSpec = get_task("easy")
+        self.current_task: TaskSpec = get_task("task_1")
         self._state = RLState(
             episode_id=str(uuid4()),
             step_count=0,
@@ -59,7 +59,7 @@ class EcoLLMInferenceRoutingEnvironment(Environment[RLAction, RLObservation, RLS
     ) -> RLObservation:
         del seed, kwargs
         if task_id is None:
-            task_id = "easy"
+            task_id = "task_1"
         self.current_task = get_task(task_id)
         self._state = RLState(
             episode_id=episode_id or str(uuid4()),
